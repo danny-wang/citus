@@ -293,8 +293,10 @@ SELECT minimum_value::bigint AS min_value,
   FROM information_schema.sequences
   WHERE sequence_name = 'app_analytics_events_mx_id_seq' \gset
 SELECT last_value FROM app_analytics_events_mx_id_seq \gset
+-- EDIT: Altering sequence from worker nodes is not allowed
+-- in order to maintain globally unique values among nodes
 ALTER SEQUENCE app_analytics_events_mx_id_seq NO MINVALUE NO MAXVALUE;
-SELECT setval('app_analytics_events_mx_id_seq'::regclass, 3940649673949184);
+SELECT setval('app_analytics_events_mx_id_seq'::regclass, 5066549580791810);
 
 INSERT INTO app_analytics_events_mx VALUES (DEFAULT, 101, 'Fauxkemon Geaux') RETURNING id;
 INSERT INTO app_analytics_events_mx (app_id, name) VALUES (102, 'Wayz') RETURNING id;

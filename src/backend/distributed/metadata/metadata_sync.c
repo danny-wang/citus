@@ -1062,11 +1062,25 @@ SequenceDDLCommandsForTable(Oid relationId)
 
 		char *sequenceDef = pg_get_sequencedef_string(sequenceOid);
 		char *escapedSequenceDef = quote_literal_cstr(sequenceDef);
+		StringInfo sequenceUnMarkDistStmt = makeStringInfo();
 		StringInfo wrappedSequenceDef = makeStringInfo();
 		StringInfo sequenceGrantStmt = makeStringInfo();
+		StringInfo sequenceMarkDistStmt = makeStringInfo();
 		char *sequenceName = generate_qualified_relation_name(sequenceOid);
 		Oid sequenceTypeOid = GetAttributeTypeOid(relationId, attnum);
 		char *typeName = format_type_be(sequenceTypeOid);
+
+		/*
+		 * commands to unmark the object distributed in workers with metadata
+		 * we should alter sequence owner if needed, and altering the sequence
+		 * is not allowed if the sequence is found in pg_dist_object
+		 */
+		appendStringInfo(sequenceUnMarkDistStmt,
+						 "DELETE FROM citus.pg_dist_object WHERE objid IN "
+						 "(SELECT c.oid FROM pg_class c JOIN pg_namespace n ON (c.relnamespace = n.oid) "
+						 "WHERE c.relname = '%s' AND n.nspname = '%s') ",
+						 get_rel_name(sequenceOid), get_namespace_name(get_rel_namespace(
+																		   sequenceOid)));
 
 		/* create schema if needed */
 		appendStringInfo(wrappedSequenceDef,
@@ -1078,14 +1092,27 @@ SequenceDDLCommandsForTable(Oid relationId)
 						 "ALTER SEQUENCE %s OWNER TO %s", sequenceName,
 						 quote_identifier(ownerName));
 
+		/* commands to mark the object distributed in workers with metadata */
+		appendStringInfo(sequenceMarkDistStmt,
+						 "INSERT INTO citus.pg_dist_object (classid, objid, objsubid) "
+						 "(SELECT %u, c.oid, %d FROM pg_class c JOIN pg_namespace n ON (c.relnamespace = n.oid) "
+						 "WHERE c.relname = '%s' AND n.nspname = '%s') "
+						 "ON CONFLICT DO NOTHING;",
+						 RelationRelationId, 0,     /* objsubid is 0 */
+						 get_rel_name(sequenceOid), get_namespace_name(get_rel_namespace(
+																		   sequenceOid)));
+
+		sequenceDDLList = lappend(sequenceDDLList, sequenceUnMarkDistStmt->data);
 		sequenceDDLList = lappend(sequenceDDLList, wrappedSequenceDef->data);
 		sequenceDDLList = lappend(sequenceDDLList, sequenceGrantStmt->data);
+		sequenceDDLList = lappend(sequenceDDLList, sequenceMarkDistStmt->data);
 
 		/* get sequence address */
 		ObjectAddress sequenceAddress = { 0 };
 		ObjectAddressSet(sequenceAddress, RelationRelationId, sequenceOid);
 		EnsureDependenciesExistOnAllNodes(&sequenceAddress);
 
+		/* mark the object distributed in the coordinator */
 		MarkObjectDistributed(&sequenceAddress);
 	}
 

@@ -380,8 +380,20 @@ pg_get_tableschemadef_string(Oid tableRelationId, bool includeSequenceDefaults,
 				 */
 				if (contain_nextval_expression_walker(defaultNode, NULL))
 				{
-					EnsureSequenceTypeSupported(tableRelationId, defaultValue->adnum,
-												attributeForm->atttypid);
+					Oid seqOid = EnsureSequenceTypeSupported(tableRelationId,
+															 defaultValue->adnum,
+															 attributeForm->atttypid);
+					if (seqOid != InvalidOid)
+					{
+						/*
+						 * Alter the sequence's data type in the coordinator if needed.
+						 * A sequence's type is bigint by default and it doesn't change even if
+						 * it's used in an int column. We should change the type if needed,
+						 * and not allow future ALTER SEQUENCE ... TYPE ... commands for
+						 * sequences used as defaults in distributed tables
+						 */
+						AlterSequenceType(seqOid, attributeForm->atttypid);
+					}
 				}
 			}
 
@@ -509,8 +521,9 @@ pg_get_tableschemadef_string(Oid tableRelationId, bool includeSequenceDefaults,
  * the types of the columns using the sequence match. If they don't, it errors out.
  * Otherwise, the condition is ensured.
  * After condition is ensured, we alter the sequence's data type in the coordinator if needed.
+ * Returns the sequence OID.
  */
-void
+Oid
 EnsureSequenceTypeSupported(Oid relationId, AttrNumber attnum, Oid seqTypId)
 {
 	/* get attrdefoid from the given relationId and attnum */
@@ -528,7 +541,7 @@ EnsureSequenceTypeSupported(Oid relationId, AttrNumber attnum, Oid seqTypId)
 		 * DEFAULT nextval('seq_name'::text) (not by DEFAULT nextval('seq_name'))
 		 * In these cases, sequencesFromAttrDef with be empty.
 		 */
-		return;
+		return InvalidOid;
 	}
 
 	if (list_length(sequencesFromAttrDef) > 1)
@@ -581,23 +594,25 @@ EnsureSequenceTypeSupported(Oid relationId, AttrNumber attnum, Oid seqTypId)
 			}
 		}
 	}
+	return seqOid;
+}
 
-	/*
-	 * Alter the sequence's data type in the coordinator if needed.
-	 * A sequence's type is bigint by default and it doesn't change even if
-	 * it's used in an int column. We should change the type if needed,
-	 * and not allow future ALTER SEQUENCE ... TYPE ... commands for
-	 * sequences used as defaults in distributed tables
-	 */
+
+/*
+ * AlterSequenceType alters the given sequence's type to the given type.
+ */
+void
+AlterSequenceType(Oid seqOid, Oid typeOid)
+{
 	Form_pg_sequence sequenceData = pg_get_sequencedef(seqOid);
 	Oid currentSequenceTypeOid = sequenceData->seqtypid;
-	if (currentSequenceTypeOid != seqTypId)
+	if (currentSequenceTypeOid != typeOid)
 	{
 		AlterSeqStmt *alterSequenceStatement = makeNode(AlterSeqStmt);
 		char *seqNamespace = get_namespace_name(get_rel_namespace(seqOid));
 		char *seqName = get_rel_name(seqOid);
 		alterSequenceStatement->sequence = makeRangeVar(seqNamespace, seqName, -1);
-		Node *asTypeNode = (Node *) makeTypeNameFromOid(seqTypId, -1);
+		Node *asTypeNode = (Node *) makeTypeNameFromOid(typeOid, -1);
 		SetDefElemArg(alterSequenceStatement, "as", asTypeNode);
 		ParseState *pstate = make_parsestate(NULL);
 		AlterSequence(pstate, alterSequenceStatement);

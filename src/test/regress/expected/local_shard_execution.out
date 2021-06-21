@@ -1701,124 +1701,122 @@ TRUNCATE collections_list;
 -- make sure that even if local execution is used, the sequence values
 -- are generated locally
 ALTER SEQUENCE collections_list_key_seq NO MINVALUE NO MAXVALUE;
+ERROR:  Altering a distributed sequence is currently not supported.
 PREPARE serial_prepared_local AS INSERT INTO collections_list (collection_id) VALUES (0) RETURNING key, ser;
-SELECT setval('collections_list_key_seq', 4);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949189);
+      setval
 ---------------------------------------------------------------------
-      4
+ 3940649673949189
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('5'::bigint, '3940649673949187'::bigint, 0) RETURNING key, ser
- key |       ser
+NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('3940649673949190'::bigint, '3940649673949187'::bigint, 0) RETURNING key, ser
+       key        |       ser
 ---------------------------------------------------------------------
-   5 | 3940649673949187
+ 3940649673949190 | 3940649673949187
 (1 row)
 
-SELECT setval('collections_list_key_seq', 5);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949190);
+      setval
 ---------------------------------------------------------------------
-      5
-(1 row)
-
-EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('6'::bigint, '3940649673949188'::bigint, 0) RETURNING key, ser
- key |       ser
----------------------------------------------------------------------
-   6 | 3940649673949188
-(1 row)
-
-SELECT setval('collections_list_key_seq', 499);
- setval
----------------------------------------------------------------------
-    499
+ 3940649673949190
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('500'::bigint, '3940649673949189'::bigint, 0) RETURNING key, ser
- key |       ser
+       key        |       ser
 ---------------------------------------------------------------------
- 500 | 3940649673949189
+ 3940649673949191 | 3940649673949188
 (1 row)
 
-SELECT setval('collections_list_key_seq', 700);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949684);
+      setval
 ---------------------------------------------------------------------
-    700
-(1 row)
-
-EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('701'::bigint, '3940649673949190'::bigint, 0) RETURNING key, ser
- key |       ser
----------------------------------------------------------------------
- 701 | 3940649673949190
-(1 row)
-
-SELECT setval('collections_list_key_seq', 708);
- setval
----------------------------------------------------------------------
-    708
+ 3940649673949684
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('709'::bigint, '3940649673949191'::bigint, 0) RETURNING key, ser
- key |       ser
+NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('3940649673949685'::bigint, '3940649673949189'::bigint, 0) RETURNING key, ser
+       key        |       ser
 ---------------------------------------------------------------------
- 709 | 3940649673949191
+ 3940649673949685 | 3940649673949189
 (1 row)
 
-SELECT setval('collections_list_key_seq', 709);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949885);
+      setval
 ---------------------------------------------------------------------
-    709
+ 3940649673949885
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('710'::bigint, '3940649673949192'::bigint, 0) RETURNING key, ser
- key |       ser
+NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('3940649673949886'::bigint, '3940649673949190'::bigint, 0) RETURNING key, ser
+       key        |       ser
 ---------------------------------------------------------------------
- 710 | 3940649673949192
+ 3940649673949886 | 3940649673949190
+(1 row)
+
+SELECT setval('collections_list_key_seq', 3940649673949893);
+      setval
+---------------------------------------------------------------------
+ 3940649673949893
+(1 row)
+
+EXECUTE serial_prepared_local;
+       key        |       ser
+---------------------------------------------------------------------
+ 3940649673949894 | 3940649673949191
+(1 row)
+
+SELECT setval('collections_list_key_seq', 3940649673949894);
+      setval
+---------------------------------------------------------------------
+ 3940649673949894
+(1 row)
+
+EXECUTE serial_prepared_local;
+NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('3940649673949895'::bigint, '3940649673949192'::bigint, 0) RETURNING key, ser
+       key        |       ser
+---------------------------------------------------------------------
+ 3940649673949895 | 3940649673949192
 (1 row)
 
 -- get ready for the next executions
-DELETE FROM collections_list WHERE key IN (5,6);
-SELECT setval('collections_list_key_seq', 4);
- setval
+DELETE FROM collections_list WHERE key IN (3940649673949190, 3940649673949191);
+SELECT setval('collections_list_key_seq', 3940649673949189);
+      setval
 ---------------------------------------------------------------------
-      4
+ 3940649673949189
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('5'::bigint, '3940649673949193'::bigint, 0) RETURNING key, ser
- key |       ser
+NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470009 (key, ser, collection_id) VALUES ('3940649673949190'::bigint, '3940649673949193'::bigint, 0) RETURNING key, ser
+       key        |       ser
 ---------------------------------------------------------------------
-   5 | 3940649673949193
+ 3940649673949190 | 3940649673949193
 (1 row)
 
-SELECT setval('collections_list_key_seq', 5);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949190);
+      setval
 ---------------------------------------------------------------------
-      5
+ 3940649673949190
 (1 row)
 
 EXECUTE serial_prepared_local;
-NOTICE:  executing the command locally: INSERT INTO local_shard_execution.collections_list_1470011 (key, ser, collection_id) VALUES ('6'::bigint, '3940649673949194'::bigint, 0) RETURNING key, ser
- key |       ser
+       key        |       ser
 ---------------------------------------------------------------------
-   6 | 3940649673949194
+ 3940649673949191 | 3940649673949194
 (1 row)
 
 -- and, one remote test
-SELECT setval('collections_list_key_seq', 10);
- setval
+SELECT setval('collections_list_key_seq', 3940649673949195);
+      setval
 ---------------------------------------------------------------------
-     10
+ 3940649673949195
 (1 row)
 
 EXECUTE serial_prepared_local;
- key |       ser
+       key        |       ser
 ---------------------------------------------------------------------
-  11 | 3940649673949195
+ 3940649673949196 | 3940649673949195
 (1 row)
 
 -- the final queries for the following CTEs are going to happen on the intermediate results only

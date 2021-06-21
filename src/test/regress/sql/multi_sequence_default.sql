@@ -208,6 +208,27 @@ ALTER TABLE seq_test_7 ATTACH PARTITION seq_test_7_par FOR VALUES FROM ('2021-05
 \c - - - :worker_1_port
 \d sequence_default.seq_7
 \d sequence_default.seq_7_par
+
+
+-- Check we cannot alter sequences from worker nodes
+DROP SEQUENCE sequence_default.seq_7 CASCADE;
+ALTER SEQUENCE sequence_default.seq_7 RENAME TO sequence_7;
+ALTER TABLE sequence_default.seq_7 RENAME TO sequence_7;
+ALTER SEQUENCE sequence_default.seq_7 AS smallint;
+ALTER SEQUENCE sequence_default.seq_7 INCREMENT BY 2;
+ALTER SEQUENCE sequence_default.seq_7 MINVALUE 5 MAXVALUE 5000;
+ALTER SEQUENCE sequence_default.seq_7 START WITH 6;
+ALTER SEQUENCE sequence_default.seq_7 RESTART WITH 6;
+ALTER SEQUENCE sequence_default.seq_7 NO CYCLE;
+ALTER SEQUENCE sequence_default.seq_7 OWNED BY seq_test_7;
+CREATE SCHEMA worker_schema;
+ALTER SEQUENCE sequence_default.seq_7 SET SCHEMA worker_schema;
+ALTER TABLE sequence_default.seq_7 SET SCHEMA worker_schema;
+DROP SCHEMA worker_schema;
+CREATE ROLE worker_role;
+ALTER SEQUENCE sequence_default.seq_7 OWNER TO worker_role;
+ALTER TABLE sequence_default.seq_7 OWNER TO worker_role;
+DROP ROLE worker_role;
 \c - - - :master_port
 SET citus.shard_replication_factor TO 1;
 SET search_path = sequence_default, public;
@@ -290,6 +311,7 @@ DROP SEQUENCE seq_10 CASCADE;
 DROP ROLE seq_role_0, seq_role_1;
 SELECT run_command_on_workers('DROP ROLE IF EXISTS seq_role_0, seq_role_1');
 
+
 -- Check some cases when default is defined by
 -- DEFAULT nextval('seq_name'::text) (not by DEFAULT nextval('seq_name'))
 SELECT stop_metadata_sync_to_node('localhost', :worker_1_port);
@@ -306,6 +328,7 @@ SELECT create_distributed_table('seq_test_11', 'col1');
 \c - - - :worker_1_port
 INSERT INTO sequence_default.seq_test_10 VALUES (1);
 \c - - - :master_port
+
 
 -- clean up
 DROP TABLE sequence_default.seq_test_7_par;

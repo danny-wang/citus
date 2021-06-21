@@ -820,28 +820,28 @@ ALTER SEQUENCE collections_list_key_seq NO MINVALUE NO MAXVALUE;
 
 PREPARE serial_prepared_local AS INSERT INTO collections_list (collection_id) VALUES (0) RETURNING key, ser;
 
-SELECT setval('collections_list_key_seq', 4);
+SELECT setval('collections_list_key_seq', 3940649673949189);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 5);
+SELECT setval('collections_list_key_seq', 3940649673949190);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 499);
+SELECT setval('collections_list_key_seq', 3940649673949684);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 700);
+SELECT setval('collections_list_key_seq', 3940649673949885);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 708);
+SELECT setval('collections_list_key_seq', 3940649673949893);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 709);
+SELECT setval('collections_list_key_seq', 3940649673949894);
 EXECUTE serial_prepared_local;
 
 -- get ready for the next executions
-DELETE FROM collections_list WHERE key IN (5,6);
-SELECT setval('collections_list_key_seq', 4);
+DELETE FROM collections_list WHERE key IN (3940649673949190, 3940649673949191);
+SELECT setval('collections_list_key_seq', 3940649673949189);
 EXECUTE serial_prepared_local;
-SELECT setval('collections_list_key_seq', 5);
+SELECT setval('collections_list_key_seq', 3940649673949190);
 EXECUTE serial_prepared_local;
 
 -- and, one remote test
-SELECT setval('collections_list_key_seq', 10);
+SELECT setval('collections_list_key_seq', 3940649673949195);
 EXECUTE serial_prepared_local;
 
 -- the final queries for the following CTEs are going to happen on the intermediate results only

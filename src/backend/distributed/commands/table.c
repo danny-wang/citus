@@ -466,9 +466,8 @@ PostprocessAlterTableSchemaStmt(Node *node, const char *queryString)
 	/* check whether we are dealing with a sequence here */
 	if (get_rel_relkind(tableAddress.objectId) == RELKIND_SEQUENCE)
 	{
-		AlterObjectSchemaStmt *stmtCopy = copyObject(stmt);
-		stmtCopy->objectType = OBJECT_SEQUENCE;
-		return PostprocessAlterSequenceSchemaStmt((Node *) stmtCopy, queryString);
+		stmt->objectType = OBJECT_SEQUENCE;
+		return PostprocessAlterSequenceSchemaStmt((Node *) stmt, queryString);
 	}
 
 	if (!ShouldPropagate() || !IsCitusTable(tableAddress.objectId))
@@ -1586,9 +1585,8 @@ PostprocessAlterTableStmt(AlterTableStmt *alterTableStatement)
 		 */
 		if (get_rel_relkind(relationId) == RELKIND_SEQUENCE)
 		{
-			AlterTableStmt *stmtCopy = copyObject(alterTableStatement);
-			stmtCopy->relkind = OBJECT_SEQUENCE;
-			PostprocessAlterSequenceOwnerStmt((Node *) stmtCopy, NULL);
+			alterTableStatement->relkind = OBJECT_SEQUENCE;
+			PostprocessAlterSequenceOwnerStmt((Node *) alterTableStatement, NULL);
 			return;
 		}
 
@@ -1675,7 +1673,20 @@ PostprocessAlterTableStmt(AlterTableStmt *alterTableStatement)
 							AttrNumber attnum = get_attnum(relationId,
 														   columnDefinition->colname);
 							Oid seqTypId = GetAttributeTypeOid(relationId, attnum);
-							EnsureSequenceTypeSupported(relationId, attnum, seqTypId);
+
+							Oid seqOid = EnsureSequenceTypeSupported(relationId, attnum,
+																	 seqTypId);
+							if (seqOid != InvalidOid)
+							{
+								/*
+								 * Alter the sequence's data type in the coordinator if needed.
+								 * A sequence's type is bigint by default and it doesn't change even if
+								 * it's used in an int column. We should change the type if needed,
+								 * and not allow future ALTER SEQUENCE ... TYPE ... commands for
+								 * sequences used as defaults in distributed tables
+								 */
+								AlterSequenceType(seqOid, seqTypId);
+							}
 						}
 					}
 				}
@@ -1696,7 +1707,18 @@ PostprocessAlterTableStmt(AlterTableStmt *alterTableStatement)
 			{
 				AttrNumber attnum = get_attnum(relationId, command->name);
 				Oid seqTypId = GetAttributeTypeOid(relationId, attnum);
-				EnsureSequenceTypeSupported(relationId, attnum, seqTypId);
+				Oid seqOid = EnsureSequenceTypeSupported(relationId, attnum, seqTypId);
+				if (seqOid != InvalidOid)
+				{
+					/*
+					 * Alter the sequence's data type in the coordinator if needed.
+					 * A sequence's type is bigint by default and it doesn't change even if
+					 * it's used in an int column. We should change the type if needed,
+					 * and not allow future ALTER SEQUENCE ... TYPE ... commands for
+					 * sequences used as defaults in distributed tables
+					 */
+					AlterSequenceType(seqOid, seqTypId);
+				}
 			}
 		}
 	}
