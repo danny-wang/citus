@@ -2767,9 +2767,9 @@ CoPartitionedTables(Oid firstRelationId, Oid secondRelationId)
 static bool
 CoPlacedShardIntervals(ShardInterval *firstInterval, ShardInterval *secondInterval)
 {
-	List *firstShardPlacementList = ShardPlacementListWithoutOldPlacements(
+	List *firstShardPlacementList = ShardPlacementListWithoutOrphanedPlacements(
 		firstInterval->shardId);
-	List *secondShardPlacementList = ShardPlacementListWithoutOldPlacements(
+	List *secondShardPlacementList = ShardPlacementListWithoutOrphanedPlacements(
 		secondInterval->shardId);
 	ListCell *firstShardPlacementCell = NULL;
 	ListCell *secondShardPlacementCell = NULL;

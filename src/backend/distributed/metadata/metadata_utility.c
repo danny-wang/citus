@@ -1092,7 +1092,7 @@ TableShardReplicationFactor(Oid relationId)
 	{
 		uint64 shardId = shardInterval->shardId;
 
-		List *shardPlacementList = ShardPlacementList(shardId);
+		List *shardPlacementList = ShardPlacementListWithoutOrphanedPlacements(shardId);
 		uint32 shardPlacementCount = list_length(shardPlacementList);
 
 		/*
@@ -1392,7 +1392,8 @@ List *
 ActiveShardPlacementList(uint64 shardId)
 {
 	List *activePlacementList = NIL;
-	List *shardPlacementList = ShardPlacementList(shardId);
+	List *shardPlacementList =
+		ShardPlacementListIncludingOrphanedPlacements(shardId);
 
 	ShardPlacement *shardPlacement = NULL;
 	foreach_ptr(shardPlacement, shardPlacementList)
@@ -1408,14 +1409,16 @@ ActiveShardPlacementList(uint64 shardId)
 
 
 /*
- * ShardPlacementListWithoutOldPlacements returns shard placements exluding
- * the ones that are marked to be deleted.
+ * ShardPlacementListWithoutOrphanedPlacements returns shard placements exluding
+ * the ones that are orphaned, because they are marked to be deleted at a later
+ * point (shardstate = 4).
  */
 List *
-ShardPlacementListWithoutOldPlacements(uint64 shardId)
+ShardPlacementListWithoutOrphanedPlacements(uint64 shardId)
 {
 	List *activePlacementList = NIL;
-	List *shardPlacementList = ShardPlacementList(shardId);
+	List *shardPlacementList =
+		ShardPlacementListIncludingOrphanedPlacements(shardId);
 
 	ShardPlacement *shardPlacement = NULL;
 	foreach_ptr(shardPlacement, shardPlacementList)
@@ -1967,35 +1970,14 @@ UpdatePartitionShardPlacementStates(ShardPlacement *parentShardPlacement, char s
 			ColocatedShardIdInRelation(partitionOid, parentShardInterval->shardIndex);
 
 		ShardPlacement *partitionPlacement =
-			ShardPlacementOnGroup(partitionShardId, parentShardPlacement->groupId);
+			ShardPlacementOnGroupIncludingOrphanedPlacements(
+				parentShardPlacement->groupId, partitionShardId);
 
 		/* the partition should have a placement with the same group */
 		Assert(partitionPlacement != NULL);
 
 		UpdateShardPlacementState(partitionPlacement->placementId, shardState);
 	}
-}
-
-
-/*
- * ShardPlacementOnGroup gets a shardInterval and a groupId, returns a placement
- * of the shard on the given group. If no such placement exists, the function
- * return NULL.
- */
-ShardPlacement *
-ShardPlacementOnGroup(uint64 shardId, int groupId)
-{
-	List *placementList = ShardPlacementList(shardId);
-	ShardPlacement *placement = NULL;
-	foreach_ptr(placement, placementList)
-	{
-		if (placement->groupId == groupId)
-		{
-			return placement;
-		}
-	}
-
-	return NULL;
 }
 
 
