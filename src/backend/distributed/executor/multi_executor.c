@@ -635,25 +635,30 @@ void
 ExecutePlanIntoDestReceiver(PlannedStmt *queryPlan, ParamListInfo params,
 							DestReceiver *dest)
 {
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver" )));
 	int eflags = 0;
 	long count = FETCH_ALL;
 
 	/* create a new portal for executing the query */
 	Portal portal = CreateNewPortal();
-
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  1" )));
 	/* don't display the portal in pg_cursors, it is for internal use only */
 	portal->visible = false;
-
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  2" )));
 	PortalDefineQuery(portal,
 					  NULL,
 					  "",
 					  CMDTAG_SELECT_COMPAT,
 					  list_make1(queryPlan),
 					  NULL);
-
-	PortalStart(portal, params, eflags, GetActiveSnapshot());
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  3" )));
+	//PortalStart(portal, params, eflags, GetActiveSnapshot());
+	PortalStart(portal, params, eflags, NULL);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  4" )));
 	PortalRun(portal, count, false, true, dest, dest, NULL);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  5" )));
 	PortalDrop(portal, false);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  6" )));
 }
 
 

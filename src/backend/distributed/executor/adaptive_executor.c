@@ -3257,7 +3257,7 @@ TransactionStateMachine(WorkerSession *session)
 
 						break;
 					}
-
+					
 					bool placementExecutionStarted =
 						StartPlacementExecutionOnSession(placementExecution, session);
 					if (!placementExecutionStarted)
