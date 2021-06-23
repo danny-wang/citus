@@ -99,6 +99,10 @@
 #include "utils/builtins.h"
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
+/* ------------- danny test begin ---------------  */
+#include "distributed/multi_executor.h"
+#include "nodes/print.h"
+/* ------------- danny test end ---------------  */
 
 /*
  * RecursivePlanningContext is used to recursively plan subqueries
@@ -207,6 +211,12 @@ List *
 GenerateSubplansForSubqueriesAndCTEs(uint64 planId, Query *originalQuery,
 									 PlannerRestrictionContext *plannerRestrictionContext)
 {
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("walk into GenerateSubplansForSubqueriesAndCTEs, planId:%d", planId)));
+	}
+	/* ------------- danny test  end---------------  */
 	RecursivePlanningContext context;
 
 	recursivePlanningDepth++;
@@ -234,6 +244,12 @@ GenerateSubplansForSubqueriesAndCTEs(uint64 planId, Query *originalQuery,
 	 */
 	context.allDistributionKeysInQueryAreEqual =
 		AllDistributionKeysInQueryAreEqual(originalQuery, plannerRestrictionContext);
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("context.allDistributionKeysInQueryAreEqual:%d", context.allDistributionKeysInQueryAreEqual)));
+	}
+	/* ------------- danny test  end---------------  */	
 
 	DeferredErrorMessage *error = RecursivelyPlanSubqueriesAndCTEs(originalQuery,
 																   &context);
@@ -276,6 +292,18 @@ GenerateSubplansForSubqueriesAndCTEs(uint64 planId, Query *originalQuery,
 static DeferredErrorMessage *
 RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context)
 {
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("walk into RecursivelyPlanSubqueriesAndCTEs")));
+		StringInfo subqueryString = makeStringInfo();
+
+		pg_get_query_def(query, subqueryString);
+
+		ereport(DEBUG3, (errmsg("-----RecursivelyPlanSubqueriesAndCTEs query:%s" , ApplyLogRedaction(subqueryString->data))));
+		//elog_node_display(LOG, "citus parse tree", query, Debug_pretty_print);
+	}
+	/* ------------- danny test  end---------------  */
 	DeferredErrorMessage *error = RecursivelyPlanCTEs(query, context);
 	if (error != NULL)
 	{
@@ -284,6 +312,12 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 
 	if (SubqueryPushdown)
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("SubqueryPushdown")));
+		}
+		/* ------------- danny test  end---------------  */
 		/*
 		 * When the subquery_pushdown flag is enabled we make some hacks
 		 * to push down subqueries with LIMIT. Recursive planning would
@@ -312,10 +346,36 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 	 * This code also runs for the top-level query, which allows us to support
 	 * top-level set operations.
 	 */
+	/* ------------- danny test begin ---------------  */
 
+	if (IsLoggableLevel(DEBUG3))
+	{
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(query, subqueryString);
+		ereport(DEBUG3, (errmsg("+++++++++ after query_tree_walker, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+
+	}
+	/* ------------- danny test  end---------------  */
 	if (ShouldRecursivelyPlanSetOperation(query, context))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(query, subqueryString);
+			ereport(DEBUG3, (errmsg("++++++----------######ShouldRecursivelyPlanSetOperation, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
 		RecursivelyPlanSetOperations(query, (Node *) query->setOperations, context);
+
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(query, subqueryString);
+			ereport(DEBUG3, (errmsg("++++++++++++++++++after RecursivelyPlanSetOperations, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
 	}
 
 	/*
@@ -325,6 +385,12 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 	 */
 	if (ShouldRecursivelyPlanSublinks(query))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("walk into ShouldRecursivelyPlanSublinks, context->level:%d",context->level)));
+		}
+		/* ------------- danny test  end---------------  */
 		/* replace all subqueries in the WHERE clause */
 		if (query->jointree && query->jointree->quals)
 		{
@@ -337,6 +403,12 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 
 	if (query->havingQual != NULL)
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("query->havingQual != NULL")));
+		}
+		/* ------------- danny test  end---------------  */
 		if (NodeContainsSubqueryReferencingOuterQuery(query->havingQual))
 		{
 			return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
@@ -353,12 +425,24 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 	 */
 	if (ShouldRecursivelyPlanNonColocatedSubqueries(query, context))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("walk into ShouldRecursivelyPlanNonColocatedSubqueries")));
+		}
+		/* ------------- danny test  end---------------  */
 		RecursivelyPlanNonColocatedSubqueries(query, context);
 	}
 
 
 	if (ShouldConvertLocalTableJoinsToSubqueries(query->rtable))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("walk into ShouldConvertLocalTableJoinsToSubqueries")));
+		}
+		/* ------------- danny test  end---------------  */
 		/*
 		 * Logical planner cannot handle "local_table" [OUTER] JOIN "dist_table", or
 		 * a query with local table/citus local table and subquery. We convert local/citus local
@@ -674,7 +758,6 @@ ShouldRecursivelyPlanSublinks(Query *query)
 	return true;
 }
 
-
 /*
  * RecursivelyPlanAllSubqueries descends into an expression tree and recursively
  * plans all subqueries that contain at least one distributed table. The recursive
@@ -691,8 +774,29 @@ RecursivelyPlanAllSubqueries(Node *node, RecursivePlanningContext *planningConte
 	if (IsA(node, Query))
 	{
 		Query *query = (Query *) node;
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG1))
+		{
+			StringInfo subqueryString = makeStringInfo();
+	
+			pg_get_query_def(query, subqueryString);
+	
+			ereport(DEBUG1, (errmsg("RecursivelyPlanAllSubqueries query:%s" , ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
 		if (FindNodeMatchingCheckFunctionInRangeTableList(query->rtable, IsCitusTableRTE))
 		{
+			/* ------------- danny test begin ---------------  */
+			if (IsLoggableLevel(DEBUG1))
+			{
+				StringInfo subqueryString = makeStringInfo();
+		
+				pg_get_query_def(query, subqueryString);
+		
+				ereport(DEBUG1, (errmsg("FindNodeMatchingCheckFunctionInRangeTableList query:%s" , ApplyLogRedaction(subqueryString->data))));
+			}
+			/* ------------- danny test  end---------------  */
+
 			RecursivelyPlanSubquery(query, planningContext);
 		}
 
@@ -864,8 +968,16 @@ RecursivelyPlanSubqueryWalker(Node *node, RecursivePlanningContext *context)
 
 	if (IsA(node, Query))
 	{
+		
 		Query *query = (Query *) node;
-
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(query, subqueryString);
+			ereport(DEBUG3, (errmsg("------walk into RecursivelyPlanSubqueryWalker and node is query, level:%d， query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
 		context->level += 1;
 
 		/*
@@ -883,15 +995,31 @@ RecursivelyPlanSubqueryWalker(Node *node, RecursivePlanningContext *context)
 		 * Recursively plan this subquery if it cannot be pushed down and is
 		 * eligible for recursive planning.
 		 */
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(query, subqueryString);
+			ereport(DEBUG3, (errmsg("$$$$$$prepare_to_run_ShouldRecursivelyPlanSubquery, level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
 		if (ShouldRecursivelyPlanSubquery(query, context))
 		{
+			/* ------------- danny test begin ---------------  */
+			if (IsLoggableLevel(DEBUG3))
+			{
+				StringInfo subqueryString = makeStringInfo();
+				pg_get_query_def(query, subqueryString);
+				ereport(DEBUG3, (errmsg("------level:%d subquery ShouldRecursivelyPlanSubquery, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+			}
+			/* ------------- danny test  end---------------  */
 			RecursivelyPlanSubquery(query, context);
 		}
 
 		/* we're done, no need to recurse anymore for this query */
 		return false;
 	}
-
+	//ereport(DEBUG3, (errmsg("%%%%%%%%%%%%%%%%%%ready to run expression_tree_walker,nodetag:%d,level: :%d ",nodeTag(node),context->level)));
 	return expression_tree_walker(node, RecursivelyPlanSubqueryWalker, context);
 }
 
@@ -986,14 +1114,23 @@ AllDistributionKeysInSubqueryAreEqual(Query *subquery,
 static bool
 ShouldRecursivelyPlanSetOperation(Query *query, RecursivePlanningContext *context)
 {
+	if (IsLoggableLevel(DEBUG3))
+	{
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(query, subqueryString);
+		ereport(DEBUG3, (errmsg("****************walk  into ShouldRecursivelyPlanSetOperation  level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		//elog_node_display(LOG, "citus parse tree", query, Debug_pretty_print);
+	}
 	SetOperationStmt *setOperations = (SetOperationStmt *) query->setOperations;
 	if (setOperations == NULL)
 	{
+		//ereport(DEBUG3, (errmsg("**************** step 1 ************")));
 		return false;
 	}
 
 	if (context->level == 0)
 	{
+		//ereport(DEBUG3, (errmsg("**************** step 2 ************")));
 		/*
 		 * We cannot push down top-level set operation. Recursively plan the
 		 * leaf nodes such that it becomes a router query.
@@ -1003,26 +1140,33 @@ ShouldRecursivelyPlanSetOperation(Query *query, RecursivePlanningContext *contex
 
 	if (setOperations->op != SETOP_UNION)
 	{
+		//ereport(DEBUG3, (errmsg("**************** step 3 ************")));
 		/*
 		 * We can only push down UNION operaionts, plan other set operations
 		 * recursively.
 		 */
 		return true;
 	}
+	//ereport(DEBUG3, (errmsg("**************** step 4 ************")));
 
 	if (DeferErrorIfUnsupportedUnionQuery(query) != NULL)
 	{
+
+		//ereport(DEBUG3, (errmsg("**************** step 5 ************")));
 		/*
 		 * If at least one leaf query in the union is recurring, then all
 		 * leaf nodes need to be recurring.
 		 */
 		return true;
 	}
+	//ereport(DEBUG3, (errmsg("**************** step 6 ************")));
 
 	PlannerRestrictionContext *filteredRestrictionContext =
 		FilterPlannerRestrictionForQuery(context->plannerRestrictionContext, query);
 	if (!SafeToPushdownUnionSubquery(filteredRestrictionContext))
 	{
+		//ereport(DEBUG3, (errmsg("**************** step 7 ************")));
+
 		/*
 		 * The distribution column is not in the same place in all sides
 		 * of the union, meaning we cannot determine distribution column
@@ -1030,6 +1174,7 @@ ShouldRecursivelyPlanSetOperation(Query *query, RecursivePlanningContext *contex
 		 */
 		return true;
 	}
+	//ereport(DEBUG3, (errmsg("**************** step 8 ************")));
 
 	return false;
 }
@@ -1044,8 +1189,22 @@ static void
 RecursivelyPlanSetOperations(Query *query, Node *node,
 							 RecursivePlanningContext *context)
 {
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(query, subqueryString);
+		ereport(DEBUG3, (errmsg("############# walk into RecursivelyPlanSetOperations,query:%s",ApplyLogRedaction(subqueryString->data))));
+	}
+	/* ------------- danny test  end---------------  */
 	if (IsA(node, SetOperationStmt))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperations is SetOperationStmt")));
+		}
+		/* ------------- danny test  end---------------  */
 		SetOperationStmt *setOperations = (SetOperationStmt *) node;
 
 		RecursivelyPlanSetOperations(query, setOperations->larg, context);
@@ -1053,6 +1212,12 @@ RecursivelyPlanSetOperations(Query *query, Node *node,
 	}
 	else if (IsA(node, RangeTblRef))
 	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperations is RangeTblRef")));
+		}
+		/* ------------- danny test  end---------------  */
 		RangeTblRef *rangeTableRef = (RangeTblRef *) node;
 		RangeTblEntry *rangeTableEntry = rt_fetch(rangeTableRef->rtindex,
 												  query->rtable);
@@ -1143,7 +1308,19 @@ IsRelationLocalTableOrMatView(Oid relationId)
 static bool
 RecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *planningContext)
 {
+	
 	uint64 planId = planningContext->planId;
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("walk into RecursivelyPlanSubquery, planId：%d",planId)));
+		StringInfo subqueryString = makeStringInfo();
+
+		pg_get_query_def(subquery, subqueryString);
+
+		ereport(DEBUG3, (errmsg("!!!!!!!!!!!!!!!!!!!!!!!!!!RecursivelyPlanSubquery, planId：%d, query:%s" , planId, ApplyLogRedaction(subqueryString->data))));
+	}
+	/* ------------- danny test  end---------------  */
 	Query *debugQuery = NULL;
 
 	if (ContainsReferencesToOuterQuery(subquery))
@@ -1169,18 +1346,43 @@ RecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *planningConte
 	 */
 	int subPlanId = list_length(planningContext->subPlanList) + 1;
 
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to CreateDistributedSubPlan, planId：%d,subPlanId：%d",planId,subPlanId)));
+	}
+	/* ------------- danny test  end---------------  */
 	DistributedSubPlan *subPlan = CreateDistributedSubPlan(subPlanId, subquery);
 	planningContext->subPlanList = lappend(planningContext->subPlanList, subPlan);
 
 	/* build the result_id parameter for the call to read_intermediate_result */
 	char *resultId = GenerateResultId(planId, subPlanId);
 
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to BuildSubPlanResultQuery, planId：%d,subPlanId：%d",planId,subPlanId)));
+	}
+	/* ------------- danny test  end---------------  */
+
 	/*
 	 * BuildSubPlanResultQuery() can optionally use provided column aliases.
 	 * We do not need to send additional alias list for subqueries.
 	 */
 	Query *resultQuery = BuildSubPlanResultQuery(subquery->targetList, NIL, resultId);
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(resultQuery, subqueryString);
+		ereport(DEBUG3, (errmsg("++++，resultQuery :%s",ApplyLogRedaction(subqueryString->data))));
+	}
+		
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("finish BuildSubPlanResultQuery, planId：%d,subPlanId：%d",planId,subPlanId)));
+	}
+	/* ------------- danny test  end---------------  */
 	if (IsLoggableLevel(DEBUG1))
 	{
 		StringInfo subqueryString = makeStringInfo();
@@ -1907,6 +2109,12 @@ BuildReadIntermediateResultsQuery(List *targetEntryList, List *columnAliasList,
 								  Const *resultIdConst, Oid functionOid,
 								  bool useBinaryCopyFormat)
 {
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("walk into BuildReadIntermediateResultsQuery,functionOid:%d",functionOid)));
+	}
+	/* ------------- danny test  end---------------  */
 	List *funcColNames = NIL;
 	List *funcColTypes = NIL;
 	List *funcColTypMods = NIL;

@@ -46,6 +46,9 @@
 #include "distributed/shard_utils.h"
 #include "distributed/version_compat.h"
 #include "distributed/worker_shard_visibility.h"
+/*  danny test beign */
+#include "distributed/log_utils.h"
+/*  danny test end */
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -127,8 +130,180 @@ static PlannedStmt * PlanDistributedStmt(DistributedPlanningContext *planContext
 										 int rteIdCounter);
 static RTEListProperties * GetRTEListProperties(List *rangeTableList);
 static List * TranslatedVars(PlannerInfo *root, int relationIndex);
+/* ------------- danny test begin ---------------  */
+static bool RecursivelyRegenerateSubqueries(Query *query);
+static bool RecursivelyRegenerateSubqueryWalker(Node *node);
 
+/*
+ * RecursivelyRegenerateSubqueries finds subqueries, if subquerise match target pattern, regenerate them.
+ * current pattern: 
+ * 1. select XXX from subquery(some tables linked by union, and each query not have join) where XXX. For this pattern, where condition can be push down
+ */
+static bool
+RecursivelyRegenerateSubqueries(Query *query) {
+	if (query->commandType == CMD_SELECT && query->hasWindowFuncs == false && query->hasTargetSRFs == false && query->hasSubLinks == false
+		&& query->hasDistinctOn == false && query->hasRecursive == false && query->hasModifyingCTE == false
+		&& query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL && list_length(query->rtable) == 1
+		&& query->jointree != NULL && list_length(query->jointree->fromlist) == 1){
+		// 2. The where statement of the outer sql does not have a statistical function, and only single field is judged
+		//bool outerSqlHasWhere = false;
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(list_head(query->rtable));
+		if (query->jointree->quals != NULL && rte->rtekind == RTE_SUBQUERY) {
+			//outerSqlHasWhere = true;
+			Query* subquery = rte->subquery;
+			// subquery don't have from and where statement, only have union
+			if (subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasWindowFuncs == false&& subquery->hasTargetSRFs == false
+				&& subquery->hasSubLinks == false && subquery->hasDistinctOn == false && subquery->hasRecursive == false&& subquery->hasModifyingCTE == false
+				&& subquery->hasForUpdate == false&& subquery->hasRowSecurity == false && subquery->cteList == NULL && subquery->jointree != NULL 
+				&& list_length(subquery->jointree->fromlist) == 0 && subquery->jointree->quals == NULL && subquery->setOperations != NULL){
+				// 3. each union involved sql on query from one table  
+				bool allPhyisicalTableFollowRules = true;
+				ListCell   *lc;
+				foreach(lc, subquery->rtable){
+					RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+					if (srte->rtekind == RTE_SUBQUERY) {
+						Query* ssubquery = srte->subquery;
+						// && ssubquery->jointree->quals == NULL && list_length(ssubquery->groupClause) == 0 && list_length(ssubquery->groupingSets) == 0 
+						// && list_length(ssubquery->windowClause) == 0 && list_length(ssubquery->distinctClause) == 0 && list_length(ssubquery->sortClause) == 0
+						// && ssubquery->limitOffset == NULL && ssubquery->limitCount == NULL
+						if (ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasWindowFuncs == false&& ssubquery->hasTargetSRFs == false
+							&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false&& ssubquery->hasRecursive == false&& ssubquery->hasModifyingCTE == false
+							&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
+							&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL){
+							RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
+							if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+								allPhyisicalTableFollowRules = false;
+								break;
+							}
+						} else {
+							allPhyisicalTableFollowRules = false;
+							break;
+						}
+					}
+				}
+				// 4. then rewrite query, put where condtion to sub-queries and eliminate where condition in outer sql 
+				if (allPhyisicalTableFollowRules) {
+					// 5. drow where condition from outside sql
+					StringInfo subqueryString = makeStringInfo();
+					pg_get_query_def(query, subqueryString);
+					char* ptr = strstr(subqueryString->data," WHERE ");
+					StringInfo whereCondition = makeStringInfo();
+					if (ptr != NULL) {
+						char* ptr2 = strstr(subqueryString->data," WINDOW ");
+						if (ptr2 != NULL) {
+							*ptr2 = '\0';
+						}
+						char* ptr3 = strstr(subqueryString->data," HAVING ");
+						if (ptr3 != NULL) {
+							*ptr3 = '\0';
+						}
+						char* ptr4 = strstr(subqueryString->data," GROUP BY ");
+						if (ptr4 != NULL) {
+							*ptr4 = '\0';
+						}
+						appendStringInfo(whereCondition,"%s",ptr);
+						if (IsLoggableLevel(DEBUG3)) {
+							ereport(DEBUG3, (errmsg("################################## whereCondition：%s  ################", whereCondition->data)));
+						}
+					}
+					// 6. drow colume names from subquery
+					ListCell   *lc;
+					StringInfo columeNames = makeStringInfo();
+					foreach(lc, rte->eref->colnames)
+					{
+						/*
+						 * If the column name shown in eref is an empty string, then it's
+						 * a column that was dropped at the time of parsing the query, so
+						 * treat it as dropped.
+						 */
+						char *coln = strVal(lfirst(lc));
+						if (coln[0] == '\0')
+							coln = NULL;
+						if (coln != NULL) {
+							if (columeNames->len == 0 ) {
+								appendStringInfo(columeNames,"%s",coln);
+							} else {
+								appendStringInfo(columeNames,", %s",coln);
+							}
+						}	
+					}
+					if (IsLoggableLevel(DEBUG3)) {
+						ereport(DEBUG3, (errmsg("################################## colnames：%s  ################", columeNames->data)));
+					}
+					// 7. push-down where condition to union on involved table
+					foreach(lc, subquery->rtable){
+						RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+						if (srte->rtekind == RTE_SUBQUERY) {
+							Query* ssubquery = srte->subquery;
+							StringInfo subqueryFormatString = makeStringInfo();
+							pg_get_query_def(ssubquery, subqueryFormatString);
+							StringInfo regenerateSqlForWherePushDown = makeStringInfo();
+							appendStringInfo(regenerateSqlForWherePushDown,"SELECT %s FROM (%s) test %s", columeNames->data, subqueryFormatString->data, whereCondition->data);
+							//Query *newGenerateQuery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+							srte->subquery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+							// print log
+							StringInfo subqueryString2 = makeStringInfo();
+							//pg_get_query_def(newGenerateQuery, subqueryString2);
+							if (IsLoggableLevel(DEBUG3)) {
+								ereport(DEBUG3, (errmsg("$$$$$ before regenerate query:%s" , ApplyLogRedaction(subqueryFormatString->data))));
+							}
+							//ereport(DEBUG1, (errmsg("$$$$$ after regenerate query:%s" , ApplyLogRedaction(subqueryString2->data))));
+						}
+					}
+					subquery->stmt_len = -1;
+					subquery->stmt_location = -1;
+					// 8. outside sql not need where condition as it has been push down
+					query->jointree->quals = NULL;
+				}
 
+			}
+
+		}
+		 	
+	}
+	/* descend into subqueries */
+	query_tree_walker(query, RecursivelyRegenerateSubqueryWalker, NULL, 0);
+	return true;
+}
+
+/*
+ * RecursivelyRegenerateSubqueryWalker recursively finds all the Query nodes and
+ * recursively Regenerate if necessary.
+ */
+static bool
+RecursivelyRegenerateSubqueryWalker(Node *node)
+{
+	if (node == NULL)
+	{
+		return false;
+	}
+
+	if (IsA(node, Query))
+	{
+		
+		Query *query = (Query *) node;
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(query, subqueryString);
+			ereport(DEBUG3, (errmsg("------walk into RecursivelyRegenerateSubqueryWalker and node is query, query:%s",ApplyLogRedaction(subqueryString->data))));
+		}
+		/* ------------- danny test  end---------------  */
+		/*
+		 * First, make sure any subqueries and CTEs within this subquery
+		 * are recursively planned if necessary.
+		 */
+		RecursivelyRegenerateSubqueries(query);
+
+		/* we're done, no need to recurse anymore for this query */
+		return false;
+	}
+	//ereport(DEBUG3, (errmsg("%%%%%%%%%%%%%%%%%%ready to run expression_tree_walker,nodetag:%d,level: :%d ",nodeTag(node),context->level)));
+	return expression_tree_walker(node, RecursivelyRegenerateSubqueryWalker, NULL);
+}
+
+/* ------------- danny test end ---------------  */
 /* Distributed planner hook */
 PlannedStmt *
 distributed_planner(Query *parse,
@@ -144,6 +319,19 @@ distributed_planner(Query *parse,
 
 	List *rangeTableList = ExtractRangeTableEntryList(parse);
 
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ListCell *rangeTableCell = NULL;
+
+		foreach(rangeTableCell, rangeTableList)
+		{
+			RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
+			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rangeTableEntry->rtekind, rangeTableEntry->relid)));
+		}
+	}
+	/* ------------- danny test  end---------------  */
+
 	if (cursorOptions & CURSOR_OPT_FORCE_DISTRIBUTED)
 	{
 		/* this cursor flag could only be set when Citus has been loaded */
@@ -156,6 +344,16 @@ distributed_planner(Query *parse,
 		needsDistributedPlanning = ListContainsDistributedTableRTE(rangeTableList);
 		if (needsDistributedPlanning)
 		{
+			/* ------------- danny test begin ---------------  */
+			RecursivelyRegenerateSubqueries(parse);
+			StringInfo subqueryString = makeStringInfo();
+
+			pg_get_query_def(parse, subqueryString);
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+			}
+			rangeTableList = ExtractRangeTableEntryList(parse);
+			/* ------------- danny test end ---------------  */
 			fastPathRouterQuery = FastPathRouterQuery(parse, &distributionKeyValue);
 		}
 	}
@@ -180,6 +378,7 @@ distributed_planner(Query *parse,
 	}
 	else if (needsDistributedPlanning)
 	{
+
 		/*
 		 * standard_planner scribbles on it's input, but for deparsing we need the
 		 * unmodified form. Note that before copying we call
@@ -645,7 +844,16 @@ CreateDistributedPlannedStmt(DistributedPlanningContext *planContext)
 	{
 		hasUnresolvedParams = true;
 	}
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		if (hasUnresolvedParams) {
+			ereport(DEBUG3, (errmsg("---hasUnresolvedParams is true---")));
+		} else {
+			ereport(DEBUG3, (errmsg("---hasUnresolvedParams is false---")));
+		}
+	}
+	/* ------------- danny test  end---------------  */
 	DistributedPlan *distributedPlan =
 		CreateDistributedPlan(planId, planContext->originalQuery, planContext->query,
 							  planContext->boundParams,
@@ -931,15 +1139,33 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 		 * the full blown plan/optimize/physical planning process needed to
 		 * produce distributed query plans.
 		 */
-
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("prepare to CreateRouterPlan")));
+		}
+		/* ------------- danny test  end---------------  */
 		distributedPlan = CreateRouterPlan(originalQuery, query,
 										   plannerRestrictionContext);
+		
 		if (distributedPlan->planningError == NULL)
 		{
+			/* ------------- danny test begin ---------------  */
+			if (IsLoggableLevel(DEBUG3))
+			{
+				ereport(DEBUG3, (errmsg("CreateRouterPlan success")));
+			}
+			/* ------------- danny test  end---------------  */
 			return distributedPlan;
 		}
 		else
 		{
+			/* ------------- danny test begin ---------------  */
+			if (IsLoggableLevel(DEBUG3))
+			{
+				ereport(DEBUG3, (errmsg("CreateRouterPlan fail")));
+			}
+			/* ------------- danny test  end---------------  */
 			/*
 			 * For debugging it's useful to display why query was not
 			 * router plannable.
@@ -973,14 +1199,32 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	originalQuery = (Query *) ResolveExternalParams((Node *) originalQuery,
 													boundParams);
 	Assert(originalQuery != NULL);
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to run GenerateSubplansForSubqueriesAndCTEs, planId:%d", planId)));
+	}
+	if (IsLoggableLevel(DEBUG1))
+	{
+		StringInfo subqueryString = makeStringInfo();
 
+		pg_get_query_def(originalQuery, subqueryString);
+
+		ereport(DEBUG1, (errmsg("planId:%d, query:%s" ,planId, ApplyLogRedaction(subqueryString->data))));
+	}
+	/* ------------- danny test  end---------------  */
 	/*
 	 * Plan subqueries and CTEs that cannot be pushed down by recursively
 	 * calling the planner and return the resulting plans to subPlanList.
 	 */
 	List *subPlanList = GenerateSubplansForSubqueriesAndCTEs(planId, originalQuery,
 															 plannerRestrictionContext);
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("after GenerateSubplansForSubqueriesAndCTEs, subPlanList size is %d", list_length(subPlanList))));
+	}
+	/* ------------- danny test  end---------------  */
 	/*
 	 * If subqueries were recursively planned then we need to replan the query
 	 * to get the new planner restriction context and apply planner transformations.
@@ -1025,6 +1269,12 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 		*query = *newQuery;
 
 		/* recurse into CreateDistributedPlan with subqueries/CTEs replaced */
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("recurse into CreateDistributedPlan")));
+		}
+		/* ------------- danny test  end---------------  */
 		distributedPlan = CreateDistributedPlan(planId, originalQuery, query, NULL, false,
 												plannerRestrictionContext);
 
@@ -1034,16 +1284,23 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 
 		return distributedPlan;
 	}
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to check IsModifyCommand")));
+	}
+	/* ------------- danny test  end---------------  */
 	/*
 	 * DML command returns a planning error, even after recursive planning. The
 	 * logical planner cannot handle DML commands so return the plan with the
 	 * error.
 	 */
+	/* ------------- danny test begin ---------------  */
 	if (IsModifyCommand(originalQuery))
 	{
 		return distributedPlan;
 	}
+	/* ------------- danny test  end---------------  */
 
 	/*
 	 * CTEs are stripped from the original query by RecursivelyPlanSubqueriesAndCTEs.
@@ -1052,7 +1309,12 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	 */
 	query->cteList = NIL;
 	Assert(originalQuery->cteList == NIL);
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to run MultiLogicalPlanCreate")));
+	}
+	/* ------------- danny test  end---------------  */
 	MultiTreeRoot *logicalPlan = MultiLogicalPlanCreate(originalQuery, query,
 														plannerRestrictionContext);
 	MultiLogicalPlanOptimize(logicalPlan);
@@ -1065,7 +1327,12 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	 * physical plan, so there's no need to check that separately
 	 */
 	CheckNodeIsDumpable((Node *) logicalPlan);
-
+	/* ------------- danny test begin ---------------  */
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("ready to run CreatePhysicalDistributedPlan")));
+	}
+	/* ------------- danny test  end---------------  */
 	/* Create the physical plan */
 	distributedPlan = CreatePhysicalDistributedPlan(logicalPlan,
 													plannerRestrictionContext);
