@@ -48,7 +48,7 @@ typedef struct runSubPlanParallelPara {
 }runSubPlanParallelPara;
 
 void runSubPlanParallel(void *arg) {
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel, planId:%d" ,planId)));
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel")));
 	runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
