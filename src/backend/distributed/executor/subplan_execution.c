@@ -21,7 +21,9 @@
 #include "distributed/worker_manager.h"
 #include "executor/executor.h"
 #include "utils/datetime.h"
-
+/* ------------- danny test begin ---------------  */
+#include "nodes/print.h"
+/* ------------- danny test end ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
 
