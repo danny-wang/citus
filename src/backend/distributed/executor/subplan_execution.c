@@ -25,6 +25,7 @@
 #include "nodes/print.h"
 #include <time.h>
 #include <sys/time.h>
+#include <pthread.h>
 /* ------------- danny test end ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
