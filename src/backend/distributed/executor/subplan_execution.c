@@ -23,6 +23,8 @@
 #include "utils/datetime.h"
 /* ------------- danny test begin ---------------  */
 #include "nodes/print.h"
+#include <time.h>
+#include <sys/time.h>
 /* ------------- danny test end ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
@@ -31,6 +33,14 @@ int MaxIntermediateResult = 1048576; /* maximum size in KB the intermediate resu
 /* when this is true, we enforce intermediate result size limit in all executors */
 int SubPlanLevel = 0;
 
+/* ------------- danny test begin ---------------  */
+long getTimeUsec()
+{
+    struct timeval t;
+    gettimeofday(&t, 0);
+    return (long)((long)t.tv_sec * 1000 * 1000 + t.tv_usec);
+}
+/* ------------- danny test end ---------------  */
 
 /*
  * ExecuteSubPlans executes a list of subplans from a distributed plan
@@ -62,6 +72,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	DistributedSubPlan *subPlan = NULL;
 	foreach_ptr(subPlan, subPlanList)
 	{
+		/* ------------- danny test begin ---------------  */
+		long start_time = getTimeUsec()/1000;
+		/* ------------- danny test end ---------------  */
 		PlannedStmt *plannedStmt = subPlan->plan;
 		uint32 subPlanId = subPlan->subPlanId;
 		ParamListInfo params = NULL;
@@ -99,7 +112,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 		subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 		subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-
+		/* ------------- danny test begin ---------------  */
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		/* ------------- danny test end ---------------  */
 		subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
 		subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
 		subPlan->writeLocalFile = entry->writeLocalFile;
