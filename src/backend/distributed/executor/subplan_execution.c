@@ -123,6 +123,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 	/* ------------- danny test begin ---------------  */
 	DistributedSubPlan *subPlan = NULL;
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$outer planId:%d" ,planId)));
 	int index = 1; 
 	pthread_t thrd1, thrd2, thrd3;
 	foreach_ptr(subPlan, subPlanList){
