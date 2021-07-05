@@ -43,9 +43,9 @@ long getTimeUsec()
 struct runSubPlanParallelPara {
 	DistributedSubPlan *subPlan;
 	HTAB *intermediateResultsHash;
-}runSubPlanParallelPara;
+};
 void runSubPlanParallel(void *arg) {
-	runSubPlanParallelPara *para;
+	struct runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
 	HTAB *intermediateResultsHash; = para->intermediateResultsHash;
