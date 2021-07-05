@@ -144,7 +144,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para.planId = planId;
 			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para);
 			index++;
-			break;
+			continue;
 		} else if (index == 2) {
 			struct runSubPlanParallelPara para;
 			para.subPlan = subPlan;
@@ -152,7 +152,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para.planId = planId;
 			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para);
 			index++;
-			break;
+			continue;
 		} else if (index == 3) {
 			struct runSubPlanParallelPara para;
 			para.subPlan = subPlan;
@@ -160,7 +160,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para.planId = planId;
 			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para);
 			index++;
-			break;
+			continue;
 		} else if (index == 6) {
 			pthread_join(thrd1, NULL);
 			pthread_join(thrd2, NULL);
