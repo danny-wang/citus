@@ -82,7 +82,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3)) {
 			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
-			elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+			//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
 		}
 		/* ------------- danny test end ---------------  */
 		List *remoteWorkerNodeList =
