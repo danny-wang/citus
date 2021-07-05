@@ -2254,6 +2254,7 @@ BuildReadIntermediateResultsQuery(List *targetEntryList, List *columnAliasList,
 char *
 GenerateResultId(uint64 planId, uint32 subPlanId)
 {
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$GenerateResultId planId:%d subPlanId:%d" ,planId,subPlanId)));
 	StringInfo resultId = makeStringInfo();
 
 	appendStringInfo(resultId, UINT64_FORMAT "_%u", planId, subPlanId);
