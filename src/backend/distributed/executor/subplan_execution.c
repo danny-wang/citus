@@ -64,6 +64,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		uint32 subPlanId = subPlan->subPlanId;
 		ParamListInfo params = NULL;
 		char *resultId = GenerateResultId(planId, subPlanId);
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
+			elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		}
+		/* ------------- danny test end ---------------  */
 		List *remoteWorkerNodeList =
 			FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
 
