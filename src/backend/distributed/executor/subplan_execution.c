@@ -40,12 +40,12 @@ long getTimeUsec()
     gettimeofday(&t, 0);
     return (long)((long)t.tv_sec * 1000 * 1000 + t.tv_usec);
 }
-struct runSubPlanParallelPara {
+typedef struct runSubPlanParallelPara {
 	DistributedSubPlan *subPlan;
 	HTAB *intermediateResultsHash;
-};
+}runSubPlanParallelPara;
 void runSubPlanParallel(void *arg) {
-	struct runSubPlanParallelPara *para;
+	runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
 	HTAB *intermediateResultsHash; = para->intermediateResultsHash;
@@ -123,7 +123,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	pthread_t thrd1, thrd2, thrd3;
 	foreach_ptr(subPlan, subPlanList){
 		if (index == 1) {
-			struct runSubPlanParallelPara para;
+			runSubPlanParallelPara para;
 			para.subPlan = subPlan;
 			para.intermediateResultsHash = intermediateResultsHash;
 			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para);
