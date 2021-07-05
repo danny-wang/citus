@@ -48,11 +48,13 @@ typedef struct runSubPlanParallelPara {
 }runSubPlanParallelPara;
 
 void runSubPlanParallel(void *arg) {
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel, planId:%d" ,planId)));
 	runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
 	HTAB *intermediateResultsHash = para->intermediateResultsHash;
 	uint64 planId = para->planId;
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$planId:%d" ,planId)));
 	long start_time = getTimeUsec()/1000;
 	PlannedStmt *plannedStmt = subPlan->plan;
 	uint32 subPlanId = subPlan->subPlanId;
@@ -62,17 +64,24 @@ void runSubPlanParallel(void *arg) {
 		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
 		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
 	}
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 1" )));
 	List *remoteWorkerNodeList =
 		FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 2" )));
 	IntermediateResultsHashEntry *entry =
 		SearchIntermediateResult(intermediateResultsHash, resultId);
 	SubPlanLevel++;
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 3" )));
 	EState *estate = CreateExecutorState();
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 4" )));
 	DestReceiver *copyDest =
 		CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
 									 entry->writeLocalFile);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 5" )));
 	TimestampTz startTimestamp = GetCurrentTimestamp();
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 6" )));
 	ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 7" )));
 	/*
 	 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
 	 * so always populate them regardless of EXPLAIN ANALYZE or not.
