@@ -43,12 +43,15 @@ long getTimeUsec()
 typedef struct runSubPlanParallelPara {
 	DistributedSubPlan *subPlan;
 	HTAB *intermediateResultsHash;
+	uint64 planId;
 }runSubPlanParallelPara;
+
 void runSubPlanParallel(void *arg) {
 	runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
-	HTAB *intermediateResultsHash; = para->intermediateResultsHash;
+	HTAB *intermediateResultsHash = para->intermediateResultsHash;
+	uint64 planId = para->planId;
 	long start_time = getTimeUsec()/1000;
 	PlannedStmt *plannedStmt = subPlan->plan;
 	uint32 subPlanId = subPlan->subPlanId;
@@ -126,6 +129,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			runSubPlanParallelPara para;
 			para.subPlan = subPlan;
 			para.intermediateResultsHash = intermediateResultsHash;
+			para.planId = planId;
 			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para);
 			index++;
 			break;
@@ -133,6 +137,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			struct runSubPlanParallelPara para;
 			para.subPlan = subPlan;
 			para.intermediateResultsHash = intermediateResultsHash;
+			para.planId = planId;
 			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para);
 			index++;
 			break;
@@ -140,6 +145,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			struct runSubPlanParallelPara para;
 			para.subPlan = subPlan;
 			para.intermediateResultsHash = intermediateResultsHash;
+			para.planId = planId;
 			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para);
 			index++;
 			break;
