@@ -652,7 +652,8 @@ ExecutePlanIntoDestReceiver(PlannedStmt *queryPlan, ParamListInfo params,
 					  list_make1(queryPlan),
 					  NULL);
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  3" )));
-	PortalStart(portal, params, eflags, GetActiveSnapshot());
+	//PortalStart(portal, params, eflags, GetActiveSnapshot());
+	PortalStart(portal, params, eflags, NULL);
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  4" )));
 	PortalRun(portal, count, false, true, dest, dest, NULL);
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecutePlanIntoDestReceiver  5" )));
