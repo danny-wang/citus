@@ -123,7 +123,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		return;
 	}
 	/* ------------- danny test begin ---------------  */
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan" ,)));
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan")));
 	ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type, distributedPlan->planId, distributedPlan->modLevel,
 		distributedPlan->expectResults, distributedPlan->queryId)));
 	if (distributedPlan->workerJob != NULL) {
@@ -144,8 +144,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	elog_node_display(LOG, "selectPlanForInsertSelect parse tree", distributedPlan->selectPlanForInsertSelect, Debug_pretty_print);
 	ereport(DEBUG3, (errmsg("insertSelectMethod:%d, intermediateResultIdPrefix:%s, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod,
 	 distributedPlan->intermediateResultIdPrefix, distributedPlan->fastPathRouterPlan)));
-	log_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
-	log_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
+	elog_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
+	elog_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
 	/* ------------- danny test begin ---------------  */
 
 	HTAB *intermediateResultsHash = MakeIntermediateResultHTAB();
