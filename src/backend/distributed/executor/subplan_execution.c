@@ -123,12 +123,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		return;
 	}
 	/* ------------- danny test begin ---------------  */
+	elog_node_display(LOG, "distributedPlan parse tree", distributedPlan, Debug_pretty_print);
+
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan")));
-	ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type, distributedPlan->planId, distributedPlan->modLevel,
+	ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type.CitusNodeTag, distributedPlan->planId, distributedPlan->modLevel,
 		distributedPlan->expectResults, distributedPlan->queryId)));
 	if (distributedPlan->workerJob != NULL) {
 		ereport(DEBUG3, (errmsg("job type:%d, jobId:%d, subqueryPushdown:%d, requiresCoordinatorEvaluation:%d, deferredPruning:%d" ,
-			distributedPlan->workerJob->type, distributedPlan->workerJob->jobId, distributedPlan->workerJob->subqueryPushdown,
+			distributedPlan->workerJob->type->citus_tag, distributedPlan->workerJob->jobId, distributedPlan->workerJob->subqueryPushdown,
 		distributedPlan->workerJob->requiresCoordinatorEvaluation,distributedPlan->workerJob->deferredPruning)));
 		StringInfo subqueryString = makeStringInfo();
 		pg_get_query_def(distributedPlan->workerJob->jobQuery, subqueryString);
