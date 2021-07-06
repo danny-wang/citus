@@ -53,17 +53,18 @@ void runSubPlanParallel(void *arg) {
 	runSubPlanParallelPara *para;
 	para = (runSubPlanParallelPara *) arg;
 	DistributedSubPlan *subPlan = para->subPlan;
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel subPlan:%p" ,subPlan)));
 	HTAB *intermediateResultsHash = para->intermediateResultsHash;
 	uint64 planId = para->planId;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$planId:%d" ,planId)));
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel planId:%d" ,planId)));
 	long start_time = getTimeUsec()/1000;
 	PlannedStmt *plannedStmt = subPlan->plan;
 	uint32 subPlanId = subPlan->subPlanId;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$subPlanId:%d" ,subPlanId)));
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel subPlanId:%d" ,subPlanId)));
 	ParamListInfo params = NULL;
 	char *resultId = GenerateResultId(planId, subPlanId);
 	if (IsLoggableLevel(DEBUG3)) {
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel resultId:%s" ,resultId)));
 		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
 	}
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 1" )));
