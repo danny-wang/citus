@@ -64,8 +64,8 @@ void runSubPlanParallel(void *arg) {
 	ParamListInfo params = NULL;
 	char *resultId = GenerateResultId(planId, subPlanId);
 	if (IsLoggableLevel(DEBUG3)) {
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel resultId:%s" ,resultId)));
-		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel resultId:%s, plannedStmt:%p" ,resultI,plannedStmt)));
+		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
 	}
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 1" )));
 	List *remoteWorkerNodeList =
