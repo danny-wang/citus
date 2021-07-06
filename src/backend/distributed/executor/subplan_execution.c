@@ -42,69 +42,69 @@ long getTimeUsec()
     gettimeofday(&t, 0);
     return (long)((long)t.tv_sec * 1000 * 1000 + t.tv_usec);
 }
-typedef struct runSubPlanParallelPara {
-	DistributedSubPlan *subPlan;
-	HTAB *intermediateResultsHash;
-	uint64 planId;
-}runSubPlanParallelPara;
+// typedef struct runSubPlanParallelPara {
+// 	DistributedSubPlan *subPlan;
+// 	HTAB *intermediateResultsHash;
+// 	uint64 planId;
+// }runSubPlanParallelPara;
 
-void runSubPlanParallel(void *arg) {
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel")));
-	runSubPlanParallelPara *para;
-	para = (runSubPlanParallelPara *) arg;
-	DistributedSubPlan *subPlan = para->subPlan;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel subPlan:%p" ,subPlan)));
-	HTAB *intermediateResultsHash = para->intermediateResultsHash;
-	uint64 planId = para->planId;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel planId:%d" ,planId)));
-	long start_time = getTimeUsec()/1000;
-	PlannedStmt *plannedStmt = subPlan->plan;
-	uint32 subPlanId = subPlan->subPlanId;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel subPlanId:%d" ,subPlanId)));
-	ParamListInfo params = NULL;
-	char *resultId = GenerateResultId(planId, subPlanId);
-	if (IsLoggableLevel(DEBUG3)) {
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel resultId:%s, plannedStmt:%p" ,resultId,plannedStmt)));
-		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
-		//sleep(2);
-	}
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 1" )));
-	List *remoteWorkerNodeList =
-		FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 2" )));
-	IntermediateResultsHashEntry *entry =
-		SearchIntermediateResult(intermediateResultsHash, resultId);
-	SubPlanLevel++;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 3" )));
-	EState *estate = CreateExecutorState();
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 4" )));
-	DestReceiver *copyDest =
-		CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
-									 entry->writeLocalFile);
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 5" )));
-	TimestampTz startTimestamp = GetCurrentTimestamp();
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 6" )));
-	ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 7" )));
-	/*
-	 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
-	 * so always populate them regardless of EXPLAIN ANALYZE or not.
-	 */
-	long durationSeconds = 0.0;
-	int durationMicrosecs = 0;
-	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-						&durationMicrosecs);
-	subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-	subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	/* ------------- danny test begin ---------------  */
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
-	/* ------------- danny test end ---------------  */
-	subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
-	subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
-	subPlan->writeLocalFile = entry->writeLocalFile;
-	SubPlanLevel--;
-	FreeExecutorState(estate);
-}
+// void runSubPlanParallel(void *arg) {
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel")));
+// 	runSubPlanParallelPara *para;
+// 	para = (runSubPlanParallelPara *) arg;
+// 	DistributedSubPlan *subPlan = para->subPlan;
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$walk into runSubPlanParallel subPlan:%p" ,subPlan)));
+// 	HTAB *intermediateResultsHash = para->intermediateResultsHash;
+// 	uint64 planId = para->planId;
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel planId:%d" ,planId)));
+// 	long start_time = getTimeUsec()/1000;
+// 	PlannedStmt *plannedStmt = subPlan->plan;
+// 	uint32 subPlanId = subPlan->subPlanId;
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel subPlanId:%d" ,subPlanId)));
+// 	ParamListInfo params = NULL;
+// 	char *resultId = GenerateResultId(planId, subPlanId);
+// 	if (IsLoggableLevel(DEBUG3)) {
+// 		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$runSubPlanParallel resultId:%s, plannedStmt:%p" ,resultId,plannedStmt)));
+// 		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+// 		//sleep(2);
+// 	}
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 1" )));
+// 	List *remoteWorkerNodeList =
+// 		FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 2" )));
+// 	IntermediateResultsHashEntry *entry =
+// 		SearchIntermediateResult(intermediateResultsHash, resultId);
+// 	SubPlanLevel++;
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 3" )));
+// 	EState *estate = CreateExecutorState();
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 4" )));
+// 	DestReceiver *copyDest =
+// 		CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
+// 									 entry->writeLocalFile);
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 5" )));
+// 	TimestampTz startTimestamp = GetCurrentTimestamp();
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 6" )));
+// 	ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ STEP 7" )));
+// 	/*
+// 	 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
+// 	 * so always populate them regardless of EXPLAIN ANALYZE or not.
+// 	 */
+// 	long durationSeconds = 0.0;
+// 	int durationMicrosecs = 0;
+// 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+// 						&durationMicrosecs);
+// 	subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+// 	subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+// 	/* ------------- danny test begin ---------------  */
+// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+// 	/* ------------- danny test end ---------------  */
+// 	subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
+// 	subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
+// 	subPlan->writeLocalFile = entry->writeLocalFile;
+// 	SubPlanLevel--;
+// 	FreeExecutorState(estate);
+// }
 /* ------------- danny test end ---------------  */
 
 /*
@@ -122,6 +122,31 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		/* no subplans to execute */
 		return;
 	}
+	/* ------------- danny test begin ---------------  */
+	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan" ,)));
+	ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type, distributedPlan->planId, distributedPlan->modLevel,
+		distributedPlan->expectResults, distributedPlan->queryId)));
+	if (distributedPlan->workerJob != NULL) {
+		ereport(DEBUG3, (errmsg("job type:%d, jobId:%d, subqueryPushdown:%d, requiresCoordinatorEvaluation:%d, deferredPruning:%d" ,
+			distributedPlan->workerJob->type, distributedPlan->workerJob->jobId, distributedPlan->workerJob->subqueryPushdown,
+		distributedPlan->workerJob->requiresCoordinatorEvaluation,distributedPlan->workerJob->deferredPruning)));
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(distributedPlan->workerJob->jobQuery, subqueryString);
+		ereport(DEBUG3, (errmsg("jobQuery:%s",ApplyLogRedaction(subqueryString->data))));
+		elog_node_display(LOG, "taskList parse tree", distributedPlan->workerJob->taskList, Debug_pretty_print);
+		elog_node_display(LOG, "dependentJobList parse tree", distributedPlan->workerJob->dependentJobList, Debug_pretty_print);
+		elog_node_display(LOG, "localPlannedStatements parse tree", distributedPlan->workerJob->localPlannedStatements, Debug_pretty_print);
+		elog_node_display(LOG, "partitionKeyValue parse tree", distributedPlan->workerJob->partitionKeyValue, Debug_pretty_print);
+	}
+	elog_node_display(LOG, "combineQuery parse tree", distributedPlan->combineQuery, Debug_pretty_print);
+	elog_node_display(LOG, "relationIdList parse tree", distributedPlan->relationIdList, Debug_pretty_print);
+	elog_node_display(LOG, "insertSelectQuery parse tree", distributedPlan->insertSelectQuery, Debug_pretty_print);
+	elog_node_display(LOG, "selectPlanForInsertSelect parse tree", distributedPlan->selectPlanForInsertSelect, Debug_pretty_print);
+	ereport(DEBUG3, (errmsg("insertSelectMethod:%d, intermediateResultIdPrefix:%s, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod,
+	 distributedPlan->intermediateResultIdPrefix, distributedPlan->fastPathRouterPlan)));
+	log_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
+	log_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
+	/* ------------- danny test begin ---------------  */
 
 	HTAB *intermediateResultsHash = MakeIntermediateResultHTAB();
 	RecordSubplanExecutionsOnNodes(intermediateResultsHash, distributedPlan);
@@ -135,48 +160,46 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	UseCoordinatedTransaction();
 
 	/* ------------- danny test begin ---------------  */
-	DistributedSubPlan *subPlan = NULL;
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$outer planId:%d" ,planId)));
-	int index = 1; 
-	pthread_t thrd1, thrd2, thrd3;
-	runSubPlanParallelPara para1,para2,para3;
-	foreach_ptr(subPlan, subPlanList){
-		PlannedStmt *plannedStmt = subPlan->plan;
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p, plannedStmt:%p, index:%d" ,subPlan, plannedStmt, index)));
-		if (index == 1) {
-			para1.subPlan = subPlan;
-			para1.intermediateResultsHash = intermediateResultsHash;
-			para1.planId = planId;
-			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para1);
-			index++;
-			sleep(5);
-			continue;
-		} else if (index == 2) {
-			para2.subPlan = subPlan;
-			para2.intermediateResultsHash = intermediateResultsHash;
-			para2.planId = planId;
-			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para2);
-			index++;
-			sleep(1);
-			continue;
-		} else if (index == 3) {
-			para3.subPlan = subPlan;
-			para3.intermediateResultsHash = intermediateResultsHash;
-			para3.planId = planId;
-			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para3);
-			index++;
-			sleep(1);
-			continue;
-		} else if (index == 6) {
-			pthread_join(thrd1, NULL);
-			pthread_join(thrd2, NULL);
-			pthread_join(thrd3, NULL);
-			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$  ready to run fulfill")));
-			sleep(20);
-		}
-		index++;
-
-
+	// DistributedSubPlan *subPlan = NULL;
+	// ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$outer planId:%d" ,planId)));
+	// int index = 1; 
+	// pthread_t thrd1, thrd2, thrd3;
+	// runSubPlanParallelPara para1,para2,para3;
+	// foreach_ptr(subPlan, subPlanList){
+	// 	PlannedStmt *plannedStmt = subPlan->plan;
+	// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p, plannedStmt:%p, index:%d" ,subPlan, plannedStmt, index)));
+	// 	if (index == 1) {
+	// 		para1.subPlan = subPlan;
+	// 		para1.intermediateResultsHash = intermediateResultsHash;
+	// 		para1.planId = planId;
+	// 		pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para1);
+	// 		index++;
+	// 		sleep(5);
+	// 		continue;
+	// 	} else if (index == 2) {
+	// 		para2.subPlan = subPlan;
+	// 		para2.intermediateResultsHash = intermediateResultsHash;
+	// 		para2.planId = planId;
+	// 		pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para2);
+	// 		index++;
+	// 		sleep(1);
+	// 		continue;
+	// 	} else if (index == 3) {
+	// 		para3.subPlan = subPlan;
+	// 		para3.intermediateResultsHash = intermediateResultsHash;
+	// 		para3.planId = planId;
+	// 		pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para3);
+	// 		index++;
+	// 		sleep(1);
+	// 		continue;
+	// 	} else if (index == 6) {
+	// 		pthread_join(thrd1, NULL);
+	// 		pthread_join(thrd2, NULL);
+	// 		pthread_join(thrd3, NULL);
+	// 		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$  ready to run fulfill")));
+	// 		sleep(20);
+	// 	}
+	// 	index++;
 
 		// /* ------------- danny test begin ---------------  */
 		// long start_time = getTimeUsec()/1000;
@@ -228,63 +251,62 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// SubPlanLevel--;
 		// FreeExecutorState(estate);
 		// index++;
-	}
-	sleep(20);
-	return;
+	// }
+	// sleep(20);
+	// return;
 	/* ------------- danny test end ---------------  */
 
+	DistributedSubPlan *subPlan = NULL;
+	foreach_ptr(subPlan, subPlanList)
+	{
+		/* ------------- danny test begin ---------------  */
+		long start_time = getTimeUsec()/1000;
+		/* ------------- danny test end ---------------  */
+		PlannedStmt *plannedStmt = subPlan->plan;
+		uint32 subPlanId = subPlan->subPlanId;
+		ParamListInfo params = NULL;
+		char *resultId = GenerateResultId(planId, subPlanId);
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
+			//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		}
+		/* ------------- danny test end ---------------  */
+		List *remoteWorkerNodeList =
+			FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
 
-	// DistributedSubPlan *subPlan = NULL;
-	// foreach_ptr(subPlan, subPlanList)
-	// {
-	// 	/* ------------- danny test begin ---------------  */
-	// 	long start_time = getTimeUsec()/1000;
-	// 	/* ------------- danny test end ---------------  */
-	// 	PlannedStmt *plannedStmt = subPlan->plan;
-	// 	uint32 subPlanId = subPlan->subPlanId;
-	// 	ParamListInfo params = NULL;
-	// 	char *resultId = GenerateResultId(planId, subPlanId);
-	// 	/* ------------- danny test begin ---------------  */
-	// 	if (IsLoggableLevel(DEBUG3)) {
-	// 		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
-	// 		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
-	// 	}
-	// 	/* ------------- danny test end ---------------  */
-	// 	List *remoteWorkerNodeList =
-	// 		FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
+		IntermediateResultsHashEntry *entry =
+			SearchIntermediateResult(intermediateResultsHash, resultId);
 
-	// 	IntermediateResultsHashEntry *entry =
-	// 		SearchIntermediateResult(intermediateResultsHash, resultId);
+		SubPlanLevel++;
+		EState *estate = CreateExecutorState();
+		DestReceiver *copyDest =
+			CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
+										 entry->writeLocalFile);
 
-	// 	SubPlanLevel++;
-	// 	EState *estate = CreateExecutorState();
-	// 	DestReceiver *copyDest =
-	// 		CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
-	// 									 entry->writeLocalFile);
+		TimestampTz startTimestamp = GetCurrentTimestamp();
 
-	// 	TimestampTz startTimestamp = GetCurrentTimestamp();
+		ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
 
-	// 	ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
+		/*
+		 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
+		 * so always populate them regardless of EXPLAIN ANALYZE or not.
+		 */
+		long durationSeconds = 0.0;
+		int durationMicrosecs = 0;
+		TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
 
-	// 	/*
-	// 	 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
-	// 	 * so always populate them regardless of EXPLAIN ANALYZE or not.
-	// 	 */
-	// 	long durationSeconds = 0.0;
-	// 	int durationMicrosecs = 0;
-	// 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-	// 						&durationMicrosecs);
+		subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+		subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+		/* ------------- danny test begin ---------------  */
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		/* ------------- danny test end ---------------  */
+		subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
+		subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
+		subPlan->writeLocalFile = entry->writeLocalFile;
 
-	// 	subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-	// 	subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	// 	/* ------------- danny test begin ---------------  */
-	// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
-	// 	/* ------------- danny test end ---------------  */
-	// 	subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
-	// 	subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
-	// 	subPlan->writeLocalFile = entry->writeLocalFile;
-
-	// 	SubPlanLevel--;
-	// 	FreeExecutorState(estate);
-	// }
+		SubPlanLevel--;
+		FreeExecutorState(estate);
+	}
 }
