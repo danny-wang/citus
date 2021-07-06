@@ -166,56 +166,56 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			pthread_join(thrd2, NULL);
 			pthread_join(thrd3, NULL);
 		}
-		/* ------------- danny test begin ---------------  */
-		long start_time = getTimeUsec()/1000;
-		/* ------------- danny test end ---------------  */
-		PlannedStmt *plannedStmt = subPlan->plan;
-		uint32 subPlanId = subPlan->subPlanId;
-		ParamListInfo params = NULL;
-		char *resultId = GenerateResultId(planId, subPlanId);
-		/* ------------- danny test begin ---------------  */
-		if (IsLoggableLevel(DEBUG3)) {
-			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
-			//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
-		}
-		/* ------------- danny test end ---------------  */
-		List *remoteWorkerNodeList =
-			FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
+		// /* ------------- danny test begin ---------------  */
+		// long start_time = getTimeUsec()/1000;
+		// /* ------------- danny test end ---------------  */
+		// PlannedStmt *plannedStmt = subPlan->plan;
+		// uint32 subPlanId = subPlan->subPlanId;
+		// ParamListInfo params = NULL;
+		// char *resultId = GenerateResultId(planId, subPlanId);
+		// /* ------------- danny test begin ---------------  */
+		// if (IsLoggableLevel(DEBUG3)) {
+		// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
+		// 	//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		// }
+		// /* ------------- danny test end ---------------  */
+		// List *remoteWorkerNodeList =
+		// 	FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
 
-		IntermediateResultsHashEntry *entry =
-			SearchIntermediateResult(intermediateResultsHash, resultId);
+		// IntermediateResultsHashEntry *entry =
+		// 	SearchIntermediateResult(intermediateResultsHash, resultId);
 
-		SubPlanLevel++;
-		EState *estate = CreateExecutorState();
-		DestReceiver *copyDest =
-			CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
-										 entry->writeLocalFile);
+		// SubPlanLevel++;
+		// EState *estate = CreateExecutorState();
+		// DestReceiver *copyDest =
+		// 	CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
+		// 								 entry->writeLocalFile);
 
-		TimestampTz startTimestamp = GetCurrentTimestamp();
+		// TimestampTz startTimestamp = GetCurrentTimestamp();
 
-		ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
+		// ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
 
-		/*
-		 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
-		 * so always populate them regardless of EXPLAIN ANALYZE or not.
-		 */
-		long durationSeconds = 0.0;
-		int durationMicrosecs = 0;
-		TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-							&durationMicrosecs);
+		// /*
+		//  * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
+		//  * so always populate them regardless of EXPLAIN ANALYZE or not.
+		//  */
+		// long durationSeconds = 0.0;
+		// int durationMicrosecs = 0;
+		// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+		// 					&durationMicrosecs);
 
-		subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-		subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-		/* ------------- danny test begin ---------------  */
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
-		/* ------------- danny test end ---------------  */
-		subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
-		subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
-		subPlan->writeLocalFile = entry->writeLocalFile;
+		// subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+		// subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+		// /* ------------- danny test begin ---------------  */
+		// ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		// /* ------------- danny test end ---------------  */
+		// subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
+		// subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
+		// subPlan->writeLocalFile = entry->writeLocalFile;
 
-		SubPlanLevel--;
-		FreeExecutorState(estate);
-		index++;
+		// SubPlanLevel--;
+		// FreeExecutorState(estate);
+		// index++;
 	}
 	return;
 	/* ------------- danny test end ---------------  */
