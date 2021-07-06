@@ -140,14 +140,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	pthread_t thrd1, thrd2, thrd3;
 	runSubPlanParallelPara para1,para2,para3;
 	foreach_ptr(subPlan, subPlanList){
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p, index:%d" ,subPlan, index)));
+		PlannedStmt *plannedStmt = subPlan->plan;
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p, plannedStmt:%p, index:%d" ,subPlan, plannedStmt, index)));
 		if (index == 1) {
 			para1.subPlan = subPlan;
 			para1.intermediateResultsHash = intermediateResultsHash;
 			para1.planId = planId;
 			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para1);
 			index++;
-			sleep(1);
+			sleep(5);
 			continue;
 		} else if (index == 2) {
 			para2.subPlan = subPlan;
