@@ -26,6 +26,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <pthread.h>
+#include <unistd.h>
 /* ------------- danny test end ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
@@ -138,7 +139,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	pthread_t thrd1, thrd2, thrd3;
 	runSubPlanParallelPara para1,para2,para3;
 	foreach_ptr(subPlan, subPlanList){
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p" ,subPlan)));
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p, index:%d" ,subPlan, index)));
 		if (index == 1) {
 			para1.subPlan = subPlan;
 			para1.intermediateResultsHash = intermediateResultsHash;
@@ -164,7 +165,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			pthread_join(thrd1, NULL);
 			pthread_join(thrd2, NULL);
 			pthread_join(thrd3, NULL);
+			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$  ready to run fulfill")));
+			sleep(20);
 		}
+		index++;
 		// /* ------------- danny test begin ---------------  */
 		// long start_time = getTimeUsec()/1000;
 		// /* ------------- danny test end ---------------  */
