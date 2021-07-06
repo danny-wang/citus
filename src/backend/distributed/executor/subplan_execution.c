@@ -146,6 +146,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para1.planId = planId;
 			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para1);
 			index++;
+			sleep(1);
 			continue;
 		} else if (index == 2) {
 			para2.subPlan = subPlan;
@@ -153,6 +154,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para2.planId = planId;
 			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para2);
 			index++;
+			sleep(1);
 			continue;
 		} else if (index == 3) {
 			para3.subPlan = subPlan;
@@ -160,6 +162,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			para3.planId = planId;
 			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para3);
 			index++;
+			sleep(1);
 			continue;
 		} else if (index == 6) {
 			pthread_join(thrd1, NULL);
@@ -220,6 +223,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// FreeExecutorState(estate);
 		// index++;
 	}
+	sleep(20);
 	return;
 	/* ------------- danny test end ---------------  */
 
