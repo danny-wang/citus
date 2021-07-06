@@ -136,29 +136,28 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$outer planId:%d" ,planId)));
 	int index = 1; 
 	pthread_t thrd1, thrd2, thrd3;
+	runSubPlanParallelPara para1,para2,para3;
 	foreach_ptr(subPlan, subPlanList){
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ subPlan:%p" ,subPlan)));
 		if (index == 1) {
-			runSubPlanParallelPara para;
-			para.subPlan = subPlan;
-			para.intermediateResultsHash = intermediateResultsHash;
-			para.planId = planId;
-			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para);
+			para1.subPlan = subPlan;
+			para1.intermediateResultsHash = intermediateResultsHash;
+			para1.planId = planId;
+			pthread_create(&thrd1, NULL, (void *)runSubPlanParallel, &para1);
 			index++;
 			continue;
 		} else if (index == 2) {
-			struct runSubPlanParallelPara para;
-			para.subPlan = subPlan;
-			para.intermediateResultsHash = intermediateResultsHash;
-			para.planId = planId;
-			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para);
+			para2.subPlan = subPlan;
+			para2.intermediateResultsHash = intermediateResultsHash;
+			para2.planId = planId;
+			pthread_create(&thrd2, NULL, (void *)runSubPlanParallel, &para2);
 			index++;
 			continue;
 		} else if (index == 3) {
-			struct runSubPlanParallelPara para;
-			para.subPlan = subPlan;
-			para.intermediateResultsHash = intermediateResultsHash;
-			para.planId = planId;
-			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para);
+			para3.subPlan = subPlan;
+			para3.intermediateResultsHash = intermediateResultsHash;
+			para3.planId = planId;
+			pthread_create(&thrd3, NULL, (void *)runSubPlanParallel, &para3);
 			index++;
 			continue;
 		} else if (index == 6) {
