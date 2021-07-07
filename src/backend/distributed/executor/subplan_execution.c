@@ -25,6 +25,8 @@
 
 #include "postgres.h"
 #include "libpq-fe.h"
+#include "libpq-int.h"
+#include "pqexpbuffer.h"
 #include "distributed/connection_management.h"
 #include "distributed/adaptive_executor.h"
 #include "nodes/print.h"
