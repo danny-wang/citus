@@ -296,7 +296,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// }
 		IntermediateResultsHashEntry *entry =
 			SearchIntermediateResult(intermediateResultsHash, resultId);
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d, " list_length(entry->nodeIdList),entry->writeLocalFile)));
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d ", list_length(entry->nodeIdList),entry->writeLocalFile)));
 		elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
 		SubPlanLevel++;
 		EState *estate = CreateExecutorState();
