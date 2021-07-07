@@ -295,20 +295,20 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 																	  "172.31.87.38",
 																	  60003,
 																	  NULL, NULL);
-	WorkerSession *session = (WorkerSession *) palloc0(sizeof(WorkerSession));
-	session->sessionId = 1;
-	session->connection = connection;
-	session->commandsSent = 0;
+	// WorkerSession *session = (WorkerSession *) palloc0(sizeof(WorkerSession));
+	// session->sessionId = 1;
+	// session->connection = connection;
+	// session->commandsSent = 0;
 
 	MultiConnection *connection2 = StartNodeUserDatabaseConnection(0,
 																	  "172.31.87.38",
 																	  60002,
 																	  NULL, NULL);
 
-	WorkerSession *session2 = (WorkerSession *) palloc0(sizeof(WorkerSession));
-	session2->sessionId = 2;
-	session2->connection = connection2;
-	session2->commandsSent = 0;
+	// WorkerSession *session2 = (WorkerSession *) palloc0(sizeof(WorkerSession));
+	// session2->sessionId = 2;
+	// session2->connection = connection2;
+	// session2->commandsSent = 0;
 	DistributedPlan *node1 = GetDistributedPlan((CustomScan *) subPlan1->plan->planTree);
 	DistributedPlan *node2 = GetDistributedPlan((CustomScan *) subPlan2->plan->planTree);
     Task *task1 = (Task *)linitial(node1->workerJob->taskList);
