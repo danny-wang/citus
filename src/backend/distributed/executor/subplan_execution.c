@@ -289,14 +289,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		/* ------------- danny test end ---------------  */
 		List *remoteWorkerNodeList =
 			FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
-		WorkerNode *workerNode = NULL;
-		foreach_ptr(workerNode, remoteWorkerNodeList)
-		{
-			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$Subplan %s will be sent to %s:%d" ,resultId,workerNode->workerName, workerNode->workerPort)));
-		}
+		// WorkerNode *workerNode = NULL;
+		// foreach_ptr(workerNode, remoteWorkerNodeList)
+		// {
+		// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$Subplan %s will be sent to %s:%d" ,resultId,workerNode->workerName, workerNode->workerPort)));
+		// }
 		IntermediateResultsHashEntry *entry =
 			SearchIntermediateResult(intermediateResultsHash, resultId);
-		elog_node_display(LOG, "IntermediateResultsHashEntry parse tree", entry, Debug_pretty_print);
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d, " list_length(entry->nodeIdList),entry->writeLocalFile)));
+		elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
 		SubPlanLevel++;
 		EState *estate = CreateExecutorState();
 		DestReceiver *copyDest =
