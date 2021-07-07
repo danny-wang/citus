@@ -293,19 +293,35 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		}
 		i++;
 	}
-	MultiConnection *connection = StartNodeUserDatabaseConnection(0,
-																	  "172.31.87.38",
-																	  60003,
-																	  NULL, NULL);
+	char *conninfo1 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60003";// connect_timeout = 5";
+	char *conninfo2 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60002";// connect_timeout = 5";
+	conn1 = PQconnectStart(conninfo1);
+	ConnStatusType  ConnType = PQstatus(conn1);
+	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
+	if (CONNECTION_BAD == ConnType) {
+		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
+	}
+
+	conn2 = PQconnectStart(conninfo2);
+	ConnStatusType  ConnType2 = PQstatus(conn);
+	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType2)));
+	if (CONNECTION_BAD == ConnType2) {
+		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType2)));
+	}
+
+	// MultiConnection *connection = StartNodeUserDatabaseConnection(0,
+	// 																  "172.31.87.38",
+	// 																  60003,
+	// 																  NULL, NULL);
 	// WorkerSession *session = (WorkerSession *) palloc0(sizeof(WorkerSession));
 	// session->sessionId = 1;
 	// session->connection = connection;
 	// session->commandsSent = 0;
 
-	MultiConnection *connection2 = StartNodeUserDatabaseConnection(0,
-																	  "172.31.87.38",
-																	  60002,
-																	  NULL, NULL);
+	// MultiConnection *connection2 = StartNodeUserDatabaseConnection(0,
+	// 																  "172.31.87.38",
+	// 																  60002,
+	// 																  NULL, NULL);
 
 	// WorkerSession *session2 = (WorkerSession *) palloc0(sizeof(WorkerSession));
 	// session2->sessionId = 2;
@@ -315,10 +331,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	DistributedPlan *node2 = GetDistributedPlan((CustomScan *) subPlan2->plan->planTree);
     Task *task1 = (Task *)linitial(node1->workerJob->taskList);
     Task *task2 = (Task *)linitial(node2->workerJob->taskList);
-	int rc1 = PQsendQuery(connection->pgConn, task1->taskQuery.data.queryStringLazy);
-	int rc2 = PQsendQuery(connection2->pgConn, task2->taskQuery.data.queryStringLazy);
-	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d",rc1,rc2)));
-	ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",connection->pgConn->errorMessage.data,connection2->pgConn->errorMessage.data)));
+	int rc1 = PQsendQuery(conn1, task1->taskQuery.data.queryStringLazy);
+	int rc2 = PQsendQuery(conn2, task2->taskQuery.data.queryStringLazy);
+	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d, sql:%s",rc1,rc2,task1->taskQuery.data.queryStringLazy)));
+	ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",conn1->errorMessage.data,conn2->errorMessage.data)));
 	/* ------------- danny test end ---------------  */
 
 	// DistributedSubPlan *subPlan = NULL;
