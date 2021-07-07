@@ -316,6 +316,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int rc1 = PQsendQuery(connection->pgConn, task1->taskQuery.data.queryStringLazy);
 	int rc2 = PQsendQuery(connection2->pgConn, task2->taskQuery.data.queryStringLazy);
 	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d",rc1,rc2)));
+	ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",connection->pgConn->errorMessage,connection2->pgConn->errorMessage)));
 	/* ------------- danny test end ---------------  */
 
 	// DistributedSubPlan *subPlan = NULL;
