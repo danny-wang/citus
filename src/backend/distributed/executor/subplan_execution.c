@@ -303,7 +303,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	}
 
 	PGconn *conn2 = PQconnectStart(conninfo2);
-	ConnStatusType  ConnType2 = PQstatus(conn);
+	ConnStatusType  ConnType2 = PQstatus(conn2);
 	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType2)));
 	if (CONNECTION_BAD == ConnType2) {
 		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType2)));
