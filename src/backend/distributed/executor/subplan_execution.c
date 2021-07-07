@@ -308,7 +308,24 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	if (CONNECTION_BAD == ConnType2) {
 		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType2)));
 	}
-
+	PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
+	while (true)
+	{
+		polltype = PQconnectPoll(conn1);
+		if (polltype == PGRES_POLLING_FAILED)
+			ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
+		if (polltype == PGRES_POLLING_OK)
+			break;
+	}
+	while (true)
+	{
+		polltype = PQconnectPoll(conn2);
+		if (polltype == PGRES_POLLING_FAILED)
+			ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
+		if (polltype == PGRES_POLLING_OK)
+			break;
+	}
+	ereport(DEBUG3, (errmsg("create connection success")));
 	// MultiConnection *connection = StartNodeUserDatabaseConnection(0,
 	// 																  "172.31.87.38",
 	// 																  60003,
