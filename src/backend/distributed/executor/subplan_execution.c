@@ -154,11 +154,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	elog_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
 	ereport(DEBUG3, (errmsg("usedSubPlanNodeList length:%s",list_length(distributedPlan->usedSubPlanNodeList))));
 	elog_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
-	DistributedSubPlan *subPlan = NULL;
+	DistributedSubPlan *subPlan2 = NULL;
 	ereport(DEBUG3, (errmsg("subPlanList length:%s",list_length(distributedPlan->subPlanList))));
-	foreach_ptr(subPlan, subPlanList)
+	foreach_ptr(subPlan2, subPlanList)
 	{
-		PlannedStmt *plannedStmt = subPlan->plan;
+		PlannedStmt *plannedStmt = subPlan2->plan;
 		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
 	}
 	/* ------------- danny test begin ---------------  */
