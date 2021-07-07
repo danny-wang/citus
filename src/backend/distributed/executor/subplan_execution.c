@@ -295,14 +295,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	}
 	char *conninfo1 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60003";// connect_timeout = 5";
 	char *conninfo2 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60002";// connect_timeout = 5";
-	conn1 = PQconnectStart(conninfo1);
+	PGconn *conn1 = PQconnectStart(conninfo1);
 	ConnStatusType  ConnType = PQstatus(conn1);
 	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
 	if (CONNECTION_BAD == ConnType) {
 		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
 	}
 
-	conn2 = PQconnectStart(conninfo2);
+	PGconn *conn2 = PQconnectStart(conninfo2);
 	ConnStatusType  ConnType2 = PQstatus(conn);
 	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType2)));
 	if (CONNECTION_BAD == ConnType2) {
