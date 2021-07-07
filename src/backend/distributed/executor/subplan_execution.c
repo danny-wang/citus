@@ -272,7 +272,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	List *newDistrubutedSubPlans = NULL;
 	DistributedSubPlan *subPlan = NULL;
 	int i = 0;
-	DistributedSubPlan *subPlan1,*subPlan2 = NULL,NULL;
+	DistributedSubPlan *subPlan1 = NULL;
+	DistributedSubPlan *subPlan2 = NULL;
 	foreach_ptr(subPlan, subPlanList)
 	{	
 		if (i== 0 || i==1) {
