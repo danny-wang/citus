@@ -152,7 +152,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	}
 	
 	elog_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
+	ereport(DEBUG3, (errmsg("usedSubPlanNodeList length:%s",list_length(distributedPlan->usedSubPlanNodeList))));
 	elog_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
+	DistributedSubPlan *subPlan = NULL;
+	ereport(DEBUG3, (errmsg("subPlanList length:%s",list_length(distributedPlan->subPlanList))));
+	foreach_ptr(subPlan, subPlanList)
+	{
+		PlannedStmt *plannedStmt = subPlan->plan;
+		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+	}
 	/* ------------- danny test begin ---------------  */
 
 	HTAB *intermediateResultsHash = MakeIntermediateResultHTAB();
