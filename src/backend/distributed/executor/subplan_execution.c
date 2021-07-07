@@ -25,8 +25,8 @@
 
 #include "postgres.h"
 #include "libpq-fe.h"
-#include "distributed/connection/connection_management.h"
-#include "distributed/executor/adaptive_executor.h"
+#include "distributed/connection_management.h"
+#include "distributed/adaptive_executor.h"
 #include "nodes/print.h"
 #include <time.h>
 #include <sys/time.h>
