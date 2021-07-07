@@ -22,6 +22,11 @@
 #include "executor/executor.h"
 #include "utils/datetime.h"
 /* ------------- danny test begin ---------------  */
+
+#include "postgres.h"
+#include "libpq-fe.h"
+#include "distributed/connection_management.h"
+#include "distributed/adaptive_executor.h"
 #include "nodes/print.h"
 #include <time.h>
 #include <sys/time.h>
@@ -286,7 +291,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		}
 		i++;
 	}
-	MultiConnection *connection = StartNodeUserDatabaseConnection(connectionFlags,
+	MultiConnection *connection = StartNodeUserDatabaseConnection(0,
 																	  "172.31.87.38",
 																	  60003,
 																	  NULL, NULL);
@@ -295,7 +300,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	session->connection = connection;
 	session->commandsSent = 0;
 
-	MultiConnection *connection2 = StartNodeUserDatabaseConnection(connectionFlags,
+	MultiConnection *connection2 = StartNodeUserDatabaseConnection(0,
 																	  "172.31.87.38",
 																	  60002,
 																	  NULL, NULL);
@@ -304,9 +309,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	session2->sessionId = 2;
 	session2->connection = connection2;
 	session2->commandsSent = 0;
-	DistributedPlan *node1 = (DistributedPlan *) linitial(subPlan1->plan->planTree->custom_private);
-	DistributedPlan *node2 = (DistributedPlan *) linitial(subPlan2->plan->planTree->custom_private);
+	DistributedPlan *node1 = (DistributedPlan *) linitial(subPlan1->plan->custom_private);
+	DistributedPlan *node2 = (DistributedPlan *) linitial(subPlan2->plan->custom_private);
     Task *task1 = (Task *)linitial(node1->workerJob->taskList)
+    Task *task2 = (Task *)linitial(node2->workerJob->taskList)
 	int rc1 = PQsendQuery(connection->pgConn, task1->taskQuery.data.queryStringLazy);
 	int rc2 = PQsendQuery(connection2->pgConn, task2->taskQuery.data.queryStringLazy);
 	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d",rc1,rc2)));
