@@ -352,6 +352,67 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int rc2 = PQsendQuery(conn2, task2->taskQuery.data.queryStringLazy);
 	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d, sql:%s",rc1,rc2,task1->taskQuery.data.queryStringLazy)));
 	ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",conn1->errorMessage.data,conn2->errorMessage.data)));
+
+	const int fileFlags = (O_APPEND | O_CREAT | O_RDWR | O_TRUNC | PG_BINARY);
+	const int fileMode = (S_IRUSR | S_IWUSR);
+
+	/* make sure the directory exists */
+	CreateIntermediateResultsDirectory();
+	const char *fileName1 =  QueryResultFileName( GenerateResultId(planId, subPlan1->subPlanId))
+	const char *fileName2 =  QueryResultFileName( GenerateResultId(planId, subPlan2->subPlanId))
+	ereport(DEBUG3, (errmsg("fileName1:%s, fileName2:%s",fileName1,fileName2)));
+	FileCompat fc1 = FileCompatFromFileStart(FileOpenForTransmit(fileName1,
+																			 fileFlags,
+																			 fileMode));
+	FileCompat fc2 = FileCompatFromFileStart(FileOpenForTransmit(fileName2,
+																			 fileFlags,
+																			 fileMode));
+	// get return value
+	PGresult   *res1;
+	PGresult   *res2;
+	res1 = PQgetResult(conn1);
+	int nFields = PQnfields(res1);
+	for (i = 0; i < nFields; i++) {
+		ereport(DEBUG3, (errmsg("%-15s",PQfname(res1, i))));
+	}
+	while (true)
+	{
+		if (!res1)
+			break;
+		for (i = 0; i < PQntuples(res1); i++)
+		{
+			for (j = 0; j < nFields; j++)
+				ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+		}
+		res1 = PQgetResult(conn1);
+	}
+	/*res = PQexec(conn, "END");*/
+	PQclear(res1);
+	/* close the connection to the database and cleanup */
+	PQfinish(conn1);
+
+	res2 = PQgetResult(conn2);
+	nFields = PQnfields(res2);
+	for (i = 0; i < nFields; i++) {
+		ereport(DEBUG3, (errmsg("%-15s",PQfname(res2, i))));
+	}
+	while (true)
+	{
+		if (!res2)
+			break;
+		for (i = 0; i < PQntuples(res2); i++)
+		{
+			for (j = 0; j < nFields; j++)
+				ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res2, i, j))));
+		}
+		res1 = PQgetResult(conn2);
+	}
+	/*res = PQexec(conn, "END");*/
+	PQclear(res2);
+	/* close the connection to the database and cleanup */
+	PQfinish(conn2);
+
+
 	/* ------------- danny test end ---------------  */
 
 	// DistributedSubPlan *subPlan = NULL;
