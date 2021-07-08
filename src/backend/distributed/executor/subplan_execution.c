@@ -29,6 +29,7 @@
 #include "pqexpbuffer.h"
 #include "distributed/connection_management.h"
 #include "distributed/adaptive_executor.h"
+#include "distributed/transmit.h"
 #include "nodes/print.h"
 #include <time.h>
 #include <sys/time.h>
