@@ -156,6 +156,114 @@ TypeOutputFunctions(uint32 columnCount, Oid *typeIdArray, bool binaryFormat)
 	return columnOutputFunctions;
 }
 
+/*
+ * Send text representation of one column, with conversion and escaping.
+ *
+ * NB: This function is based on commands/copy.c and doesn't fully conform to
+ * our coding style. The function should be kept in sync with copy.c.
+ */
+static void
+CopyAttributeOutText(CopyOutState cstate, char *string)
+{
+	char *pointer = NULL;
+	char c = '\0';
+	char delimc = cstate->delim[0];
+
+	if (cstate->need_transcoding)
+	{
+		pointer = pg_server_to_any(string, strlen(string), cstate->file_encoding);
+	}
+	else
+	{
+		pointer = string;
+	}
+
+	/*
+	 * We have to grovel through the string searching for control characters
+	 * and instances of the delimiter character.  In most cases, though, these
+	 * are infrequent.  To avoid overhead from calling CopySendData once per
+	 * character, we dump out all characters between escaped characters in a
+	 * single call.  The loop invariant is that the data from "start" to "pointer"
+	 * can be sent literally, but hasn't yet been.
+	 *
+	 * As all encodings here are safe, i.e. backend supported ones, we can
+	 * skip doing pg_encoding_mblen(), because in valid backend encodings,
+	 * extra bytes of a multibyte character never look like ASCII.
+	 */
+	char *start = pointer;
+	while ((c = *pointer) != '\0')
+	{
+		if ((unsigned char) c < (unsigned char) 0x20)
+		{
+			/*
+			 * \r and \n must be escaped, the others are traditional. We
+			 * prefer to dump these using the C-like notation, rather than
+			 * a backslash and the literal character, because it makes the
+			 * dump file a bit more proof against Microsoftish data
+			 * mangling.
+			 */
+			switch (c)
+			{
+				case '\b':
+					c = 'b';
+					break;
+				case '\f':
+					c = 'f';
+					break;
+				case '\n':
+					c = 'n';
+					break;
+				case '\r':
+					c = 'r';
+					break;
+				case '\t':
+					c = 't';
+					break;
+				case '\v':
+					c = 'v';
+					break;
+				default:
+					/* If it's the delimiter, must backslash it */
+					if (c == delimc)
+						break;
+					/* All ASCII control chars are length 1 */
+					pointer++;
+					continue;		/* fall to end of loop */
+			}
+			/* if we get here, we need to convert the control char */
+			CopyFlushOutput(cstate, start, pointer);
+			CopySendChar(cstate, '\\');
+			CopySendChar(cstate, c);
+			start = ++pointer;	/* do not include char in next run */
+		}
+		else if (c == '\\' || c == delimc)
+		{
+			CopyFlushOutput(cstate, start, pointer);
+			CopySendChar(cstate, '\\');
+			start = pointer++;	/* we include char in next run */
+		}
+		else
+		{
+			pointer++;
+		}
+	}
+
+	CopyFlushOutput(cstate, start, pointer);
+}
+
+/* Append a striong to the copy buffer in outputState. */
+static void
+CopySendString(CopyOutState outputState, const char *str)
+{
+	appendBinaryStringInfo(outputState->fe_msgbuf, str, strlen(str));
+}
+
+/* Append a char to the copy buffer in outputState. */
+static void
+CopySendChar(CopyOutState outputState, char c)
+{
+	appendStringInfoCharMacro(outputState->fe_msgbuf, c);
+}
 
 
 /* ------------- danny test end ---------------  */
@@ -494,15 +602,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// write to local file
 		for (int i = 0; i < PQntuples(res1); i++)
 		{
-			Datum *columnValues[nFields];
-			bool *columnNulls[nFields];
+			Datum *columnValues = palloc0(nFields * sizeof(Datum));
+			bool *columnNulls = palloc0(nFields * sizeof(bool));
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
 			for (int j = 0; j < nFields; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res1, i, j))
 				{
-					columnArray[j] = NULL;
+					columnValues[j] = NULL;
 					columnNulls[j] = true;
 				}
 				char *value = PQgetvalue(res1, i, j);
@@ -515,7 +623,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
-			for (uint32 columnIndex = 0; columnIndex < totalColumnCount; columnIndex++){
+			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				Datum value = columnValues[columnIndex];
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
@@ -546,7 +654,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				CopySendString(rowOutputState, "\r\n");
 		#endif
 			}
-			WriteToLocalFile(copyOutState->fe_msgbuf, fc1);	
+			WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
 			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 		}
 		res1 = PQgetResult(conn1);
