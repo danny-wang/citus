@@ -185,6 +185,7 @@ TypeOutputFunctions(uint32 columnCount, Oid *typeIdArray, bool binaryFormat)
 		else
 		{
 			getTypeOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
+			ereport(DEBUG3, (errmsg("columnTypeId:%d outputFunctionId：%d",columnTypeId,outputFunctionId)));
 		}
 
 		fmgr_info(outputFunctionId, currentOutputFunction);
