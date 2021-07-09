@@ -602,14 +602,20 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			typeArray = palloc0(nFields * sizeof(Oid));
 			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
 			{
+				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
 				typeArray[columnIndex] = PQftype(res1,columnIndex);
+				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d"),typeArray[columnIndex]));
 				if (typeArray[columnIndex] != InvalidOid) {
+					ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
 					availableColumnCount++;
 				}
-				ereport(DEBUG3, (errmsg("PQftype: index:%d,  typid:%d"),columnIndex, PQftype(res1,columnIndex)));
+				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d"),columnIndex, PQftype(res1,columnIndex)));
 			}
+			ereport(DEBUG3, (errmsg("11111")));
 			fi = TypeOutputFunctions(columnCount, typeArray, false);
+			ereport(DEBUG3, (errmsg("22222")));
 		}
+		ereport(DEBUG3, (errmsg("3333")));
 		// if (ccd == NULL) {
 		// 	ccd = palloc0(columnCount * sizeof(CopyCoercionData));
 		// 	for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
