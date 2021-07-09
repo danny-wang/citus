@@ -586,6 +586,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	res1 = PQgetResult(conn1);
 	int nFields = PQnfields(res1);
 	int columnCount = nFields;
+	ereport(DEBUG3, (errmsg("nFields:%d, columnCount:%d",nFields,columnCount)));
 	for (int i = 0; i < nFields; i++) {
 		ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
 	}
