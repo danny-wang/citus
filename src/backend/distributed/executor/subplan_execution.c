@@ -725,18 +725,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			int columnIndex = 0;
 			for (; columnIndex < columnCount; columnIndex++)
 			{
-				ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
+				//ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
 				typeArray[columnIndex] = PQftype(res2,columnIndex);
-				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
+				//ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
 				if (typeArray[columnIndex] != InvalidOid) {
-					ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
+					//ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
 					availableColumnCount++;
 				}
-				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
+				//ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
 			}
-			ereport(DEBUG3, (errmsg("11111")));
+			//ereport(DEBUG3, (errmsg("11111")));
 			fi = TypeOutputFunctions(columnCount, typeArray, false);
-			ereport(DEBUG3, (errmsg("22222")));
+			//ereport(DEBUG3, (errmsg("22222")));
 		}
 		for (int i = 0; i < PQntuples(res2); i++)
 		{
@@ -757,14 +757,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
 				// CopyOutState copyOutState = resultDest->copyOutState;
 			}
-			ereport(DEBUG3, (errmsg("44444")));
+			//ereport(DEBUG3, (errmsg("44444")));
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-				ereport(DEBUG3, (errmsg("44444------")));
+				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
-				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
@@ -772,7 +772,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else {
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-						ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
+						//ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
 						//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
 						//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
 						//CopyAttributeOutText(copyOutState, columnText);
@@ -788,7 +788,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				}
 				appendedColumnCount++;
 			}
-			ereport(DEBUG3, (errmsg("55555")));
+			//ereport(DEBUG3, (errmsg("55555")));
 			if (!copyOutState->binary)
 			{
 				/* append default line termination string depending on the platform */
@@ -798,10 +798,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
-			ereport(DEBUG3, (errmsg("66666")));
+			//ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &fc2);	
-			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-			ereport(DEBUG3, (errmsg("77777")));
+			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		res2 = PQgetResult(conn2);
 	}
@@ -821,6 +821,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		if (i== 0 || i==1) {
 			i++;
 			continue;
+		}
+		if (i==5){
+			sleep(300);
 		}
 		long start_time = getTimeUsec()/1000;
 		/* ------------- danny test end ---------------  */
