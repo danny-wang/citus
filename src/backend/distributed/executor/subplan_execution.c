@@ -662,6 +662,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
+				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
@@ -669,6 +670,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else {
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
 						char *columnText = OutputFunctionCall(outputFunctionPointer, value);
 						ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
 						CopyAttributeOutText(copyOutState, columnText);
