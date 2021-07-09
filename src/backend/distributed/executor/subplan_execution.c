@@ -657,8 +657,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			ereport(DEBUG3, (errmsg("44444")));
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
-			resetStringInfo(copyOutState);
+			resetStringInfo(copyOutState->fe_msgbuf);
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
+				ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
