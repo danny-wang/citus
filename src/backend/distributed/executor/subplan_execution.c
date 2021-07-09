@@ -22,7 +22,13 @@
 #include "executor/executor.h"
 #include "utils/datetime.h"
 /* ------------- danny test begin ---------------  */
-
+#include "libpq/libpq.h"
+#include "libpq/pqformat.h"
+#include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
+#if PG_VERSION_NUM >= PG_VERSION_13
+#include "tcop/cmdtag.h"
+#endif
 #include "postgres.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
