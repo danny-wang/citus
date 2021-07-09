@@ -368,22 +368,141 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	FileCompat fc2 = FileCompatFromFileStart(FileOpenForTransmit(fileName2,
 																			 fileFlags,
 																			 fileMode));
+	// config DestReceiver
+	const char *delimiterCharacter = "\t";
+	const char *nullPrintCharacter = "\\N";
+	EState *estate = CreateExecutorState();
+	DestReceiver *copyDest1 =
+			CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan1->subPlanId), estate, NULL,
+										 true);	
+	CopyOutState copyOutState = (CopyOutState) palloc0(sizeof(CopyOutStateData));
+	copyOutState->delim = (char *) delimiterCharacter;
+	copyOutState->null_print = (char *) nullPrintCharacter;
+	copyOutState->null_print_client = (char *) nullPrintCharacter;
+	//copyOutState->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
+	copyOutState->fe_msgbuf = makeStringInfo();
+	copyOutState->need_transcoding = false;
+	//copyOutState->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
+	RemoteFileDestReceiver *resultDest1 = (RemoteFileDestReceiver *) copyDest1;
+	resultDest1->copyOutState = copyOutState;
+
+	EState *estate2 = CreateExecutorState();
+	DestReceiver *copyDest2 =
+			CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan2->subPlanId), estate2, NULL,
+										 true);		
+	CopyOutState copyOutState2 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
+	copyOutState2->delim = (char *) delimiterCharacter;
+	copyOutState2->null_print = (char *) nullPrintCharacter;
+	copyOutState2->null_print_client = (char *) nullPrintCharacter;
+	//copyOutState2->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
+	copyOutState2->fe_msgbuf = makeStringInfo();
+	copyOutState2->need_transcoding = false;
+	//copyOutState2->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
+	RemoteFileDestReceiver *resultDest2 = (RemoteFileDestReceiver *) copyDest2;
+	resultDest1->copyOutState = copyOutState2;
+
+
 	// get return value
 	PGresult   *res1;
 	PGresult   *res2;
 	res1 = PQgetResult(conn1);
 	int nFields = PQnfields(res1);
+	int columnIndex = nFields;
 	for (int i = 0; i < nFields; i++) {
 		ereport(DEBUG3, (errmsg("%-15s",PQfname(res1, i))));
 	}
+	FmgrInfo *fi = NULL;
+	//CopyCoercionData *ccd = NULL;
+	Oid *typeArray = NULL;
+	int availableColumnCount = 0;
 	while (true)
 	{
+		ereport(DEBUG3, (errmsg("walk into while (true) 1")));
 		if (!res1)
 			break;
+		if (fi == NULL) {
+			typeArray = palloc0(nFields * sizeof(Oid));
+			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+			{
+				typeArray[columnIndex] = PQftype(res1,columnIndex);
+				if (typeArray[columnIndex] != InvalidOid) {
+					availableColumnCount++;
+				}
+				ereport(DEBUG3, (errmsg("PQftype: index:%d,  typid:%d"),columnIndex, PQftype(res1,columnIndex)));
+			}
+			fi = TypeOutputFunctions(columnCount, typeArray, false);
+		}
+		// if (ccd == NULL) {
+		// 	ccd = palloc0(columnCount * sizeof(CopyCoercionData));
+		// 	for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+		// 	{
+		// 		Oid inputTupleType = typeArray[columnIndex];
+		// 		char *columnName = PQfname(res1,columnIndex);
+
+		// 		if (inputTupleType == InvalidOid)
+		// 		{
+		// 			/* TypeArrayFromTupleDescriptor decided to skip this column */
+		// 			continue;
+		// 		}
+		// 	}
+		// }
+		// write to local file
 		for (int i = 0; i < PQntuples(res1); i++)
 		{
-			for (int j = 0; j < nFields; j++)
-				ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+			Datum *columnValues[nFields];
+			bool *columnNulls[nFields];
+			memset(columnValues, 0, nFields * sizeof(Datum));
+			memset(columnNulls, 0, nFields * sizeof(bool));
+			for (int j = 0; j < nFields; j++){
+				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+				if (PQgetisnull(res1, i, j))
+				{
+					columnArray[j] = NULL;
+					columnNulls[j] = true;
+				}
+				char *value = PQgetvalue(res1, i, j);
+				columnValues[j] = (Datum)value;
+				//AppendCopyRowData
+				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
+				// CopyOutState copyOutState = resultDest->copyOutState;
+			}
+			
+			CopyOutState copyOutState = resultDest1->copyOutState;
+			uint32 appendedColumnCount = 0;
+			resetStringInfo(copyOutState->fe_msgbuf);
+			for (uint32 columnIndex = 0; columnIndex < totalColumnCount; columnIndex++){
+				Datum value = columnValues[columnIndex];
+				bool isNull = columnNulls[columnIndex];
+				bool lastColumn = false;
+				if (typeArray[columnIndex] == InvalidOid) {
+					continue;
+				} else {
+					if (!isNull) {
+						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						char *columnText = OutputFunctionCall(outputFunctionPointer, value);
+						CopyAttributeOutText(rowOutputState, columnText);
+					} else {
+						CopySendString(rowOutputState, rowOutputState->null_print_client);
+					}
+					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
+					if (!lastColumn){
+						CopySendChar(rowOutputState, rowOutputState->delim[0]);
+					}
+
+				}
+				appendedColumnCount++;
+			}
+			if (!rowOutputState->binary)
+			{
+				/* append default line termination string depending on the platform */
+		#ifndef WIN32
+				CopySendChar(rowOutputState, '\n');
+		#else
+				CopySendString(rowOutputState, "\r\n");
+		#endif
+			}
+			WriteToLocalFile(copyOutState->fe_msgbuf, fc1);	
+			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 		}
 		res1 = PQgetResult(conn1);
 	}
@@ -391,7 +510,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	PQclear(res1);
 	/* close the connection to the database and cleanup */
 	PQfinish(conn1);
-
+	ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
+	sleep(60);	
 	res2 = PQgetResult(conn2);
 	nFields = PQnfields(res2);
 	for (int i = 0; i < nFields; i++) {
@@ -404,7 +524,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		for (int i = 0; i < PQntuples(res2); i++)
 		{
 			for (int j = 0; j < nFields; j++)
-				ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res2, i, j))));
+				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res2, i, j))));
 		}
 		res1 = PQgetResult(conn2);
 	}
