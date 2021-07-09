@@ -596,6 +596,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int availableColumnCount = 0;
 	while (true)
 	{
+		ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
 		ereport(DEBUG3, (errmsg("walk into while (true) 1")));
 		for (int i = 0; i < columnCount; ){
 			ereport(DEBUG3, (errmsg("columnIndex:%d"),i));
