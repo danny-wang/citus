@@ -587,7 +587,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int nFields = PQnfields(res1);
 	int columnCount = nFields;
 	for (int i = 0; i < nFields; i++) {
-		ereport(DEBUG3, (errmsg("%-15s, oid:%d",PQfname(res1, i),PQftype(res1,i))));
+		ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
 	}
 	FmgrInfo *fi = NULL;
 	//CopyCoercionData *ccd = NULL;
@@ -602,6 +602,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			typeArray = palloc0(nFields * sizeof(Oid));
 			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
 			{
+				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
 				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
 				typeArray[columnIndex] = PQftype(res1,columnIndex);
 				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d"),typeArray[columnIndex]));
