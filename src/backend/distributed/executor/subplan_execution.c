@@ -596,11 +596,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	while (true)
 	{
 		ereport(DEBUG3, (errmsg("walk into while (true) 1")));
+		for (int columnIndex = 0; columnIndex < columnCount; columnIndex++){
+			ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
+		}
 		if (!res1)
 			break;
 		if (fi == NULL) {
 			typeArray = palloc0(nFields * sizeof(Oid));
-			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
+			int columnIndex = 0;
+			for (; columnIndex < columnCount; columnIndex++)
 			{
 				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
 				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
