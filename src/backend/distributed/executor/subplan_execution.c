@@ -708,22 +708,102 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	/* close the connection to the database and cleanup */
 	PQfinish(conn1);
 	ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
-	sleep(60);	
+	//sleep(60);	
 	res2 = PQgetResult(conn2);
 	nFields = PQnfields(res2);
 	for (int i = 0; i < nFields; i++) {
 		ereport(DEBUG3, (errmsg("%-15s",PQfname(res2, i))));
 	}
+	fi = NULL;
+	availableColumnCount = 0;
 	while (true)
 	{
 		if (!res2)
 			break;
+		if (fi == NULL) {
+			typeArray = palloc0(nFields * sizeof(Oid));
+			int columnIndex = 0;
+			for (; columnIndex < columnCount; columnIndex++)
+			{
+				ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
+				typeArray[columnIndex] = PQftype(res2,columnIndex);
+				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
+				if (typeArray[columnIndex] != InvalidOid) {
+					ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
+					availableColumnCount++;
+				}
+				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
+			}
+			ereport(DEBUG3, (errmsg("11111")));
+			fi = TypeOutputFunctions(columnCount, typeArray, false);
+			ereport(DEBUG3, (errmsg("22222")));
+		}
 		for (int i = 0; i < PQntuples(res2); i++)
 		{
-			//for (int j = 0; j < nFields; j++)
-				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res2, i, j))));
+			Datum *columnValues = palloc0(nFields * sizeof(Datum));
+			bool *columnNulls = palloc0(nFields * sizeof(bool));
+			memset(columnValues, 0, nFields * sizeof(Datum));
+			memset(columnNulls, 0, nFields * sizeof(bool));
+			for (int j = 0; j < nFields; j++){
+				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+				if (PQgetisnull(res2, i, j))
+				{
+					columnValues[j] = NULL;
+					columnNulls[j] = true;
+				}
+				char *value = PQgetvalue(res2, i, j);
+				columnValues[j] = (Datum)value;
+				//AppendCopyRowData
+				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
+				// CopyOutState copyOutState = resultDest->copyOutState;
+			}
+			ereport(DEBUG3, (errmsg("44444")));
+			CopyOutState copyOutState = copyOutState1;
+			uint32 appendedColumnCount = 0;
+			resetStringInfo(copyOutState->fe_msgbuf);
+			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
+				ereport(DEBUG3, (errmsg("44444------")));
+				Datum value = columnValues[columnIndex];
+				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				bool isNull = columnNulls[columnIndex];
+				bool lastColumn = false;
+				if (typeArray[columnIndex] == InvalidOid) {
+					continue;
+				} else {
+					if (!isNull) {
+						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
+						//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
+						//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
+						//CopyAttributeOutText(copyOutState, columnText);
+						CopyAttributeOutText(copyOutState, (char *)value);
+					} else {
+						CopySendString(copyOutState, copyOutState->null_print_client);
+					}
+					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
+					if (!lastColumn){
+						CopySendChar(copyOutState, copyOutState->delim[0]);
+					}
+
+				}
+				appendedColumnCount++;
+			}
+			ereport(DEBUG3, (errmsg("55555")));
+			if (!copyOutState->binary)
+			{
+				/* append default line termination string depending on the platform */
+		#ifndef WIN32
+				CopySendChar(copyOutState, '\n');
+		#else
+				CopySendString(copyOutState, "\r\n");
+		#endif
+			}
+			ereport(DEBUG3, (errmsg("66666")));
+			WriteToLocalFile(copyOutState->fe_msgbuf, &fc2);	
+			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+			ereport(DEBUG3, (errmsg("77777")));
 		}
-		res1 = PQgetResult(conn2);
+		res2 = PQgetResult(conn2);
 	}
 	/*res = PQexec(conn, "END");*/
 	PQclear(res2);
@@ -733,62 +813,68 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 	/* ------------- danny test end ---------------  */
 
-	// DistributedSubPlan *subPlan = NULL;
-	// foreach_ptr(subPlan, subPlanList)
-	// {
-	// 	/* ------------- danny test begin ---------------  */
-	// 	long start_time = getTimeUsec()/1000;
-	// 	/* ------------- danny test end ---------------  */
-	// 	PlannedStmt *plannedStmt = subPlan->plan;
-	// 	uint32 subPlanId = subPlan->subPlanId;
-	// 	ParamListInfo params = NULL;
-	// 	char *resultId = GenerateResultId(planId, subPlanId);
-	// 	/* ------------- danny test begin ---------------  */
-	// 	if (IsLoggableLevel(DEBUG3)) {
-	// 		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
-	// 		//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
-	// 	}
-	// 	/* ------------- danny test end ---------------  */
-	// 	List *remoteWorkerNodeList =
-	// 		FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
-	// 	// WorkerNode *workerNode = NULL;
-	// 	// foreach_ptr(workerNode, remoteWorkerNodeList)
-	// 	// {
-	// 	// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$Subplan %s will be sent to %s:%d" ,resultId,workerNode->workerName, workerNode->workerPort)));
-	// 	// }
-	// 	IntermediateResultsHashEntry *entry =
-	// 		SearchIntermediateResult(intermediateResultsHash, resultId);
-	// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d ", list_length(entry->nodeIdList),entry->writeLocalFile)));
-	// 	elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
-	// 	SubPlanLevel++;
-	// 	EState *estate = CreateExecutorState();
-	// 	DestReceiver *copyDest =
-	// 		CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
-	// 									 entry->writeLocalFile);
+	//DistributedSubPlan *subPlan = NULL;
+	int i =0 ;
+	foreach_ptr(subPlan, subPlanList)
+	{
+		/* ------------- danny test begin ---------------  */
+		if (i== 0 || i==1) {
+			i++;
+			continue;
+		}
+		long start_time = getTimeUsec()/1000;
+		/* ------------- danny test end ---------------  */
+		PlannedStmt *plannedStmt = subPlan->plan;
+		uint32 subPlanId = subPlan->subPlanId;
+		ParamListInfo params = NULL;
+		char *resultId = GenerateResultId(planId, subPlanId);
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s" ,resultId)));
+			//elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		}
+		/* ------------- danny test end ---------------  */
+		List *remoteWorkerNodeList =
+			FindAllWorkerNodesUsingSubplan(intermediateResultsHash, resultId);
+		// WorkerNode *workerNode = NULL;
+		// foreach_ptr(workerNode, remoteWorkerNodeList)
+		// {
+		// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$Subplan %s will be sent to %s:%d" ,resultId,workerNode->workerName, workerNode->workerPort)));
+		// }
+		IntermediateResultsHashEntry *entry =
+			SearchIntermediateResult(intermediateResultsHash, resultId);
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d ", list_length(entry->nodeIdList),entry->writeLocalFile)));
+		elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
+		SubPlanLevel++;
+		EState *estate = CreateExecutorState();
+		DestReceiver *copyDest =
+			CreateRemoteFileDestReceiver(resultId, estate, remoteWorkerNodeList,
+										 entry->writeLocalFile);
 
-	// 	TimestampTz startTimestamp = GetCurrentTimestamp();
+		TimestampTz startTimestamp = GetCurrentTimestamp();
 
-	// 	ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
+		ExecutePlanIntoDestReceiver(plannedStmt, params, copyDest);
 
-	// 	/*
-	// 	 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
-	// 	 * so always populate them regardless of EXPLAIN ANALYZE or not.
-	// 	 */
-	// 	long durationSeconds = 0.0;
-	// 	int durationMicrosecs = 0;
-	// 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-	// 						&durationMicrosecs);
+		/*
+		 * EXPLAIN ANALYZE instrumentations. Calculating these are very light-weight,
+		 * so always populate them regardless of EXPLAIN ANALYZE or not.
+		 */
+		long durationSeconds = 0.0;
+		int durationMicrosecs = 0;
+		TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
 
-	// 	subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-	// 	subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	// 	/* ------------- danny test begin ---------------  */
-	// 	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
-	// 	/* ------------- danny test end ---------------  */
-	// 	subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
-	// 	subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
-	// 	subPlan->writeLocalFile = entry->writeLocalFile;
+		subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+		subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+		/* ------------- danny test begin ---------------  */
+		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		/* ------------- danny test end ---------------  */
+		subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
+		subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
+		subPlan->writeLocalFile = entry->writeLocalFile;
 
-	// 	SubPlanLevel--;
-	// 	FreeExecutorState(estate);
-	// }
+		SubPlanLevel--;
+		FreeExecutorState(estate);
+		i++;
+	}
 }
