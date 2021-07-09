@@ -598,10 +598,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	{
 		ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
 		ereport(DEBUG3, (errmsg("walk into while (true) 1")));
-		for (int i = 0; i < columnCount; ){
-			ereport(DEBUG3, (errmsg("columnIndex:%d"),i));
-			i++;
-		}
 		if (!res1)
 			break;
 		if (fi == NULL) {
@@ -609,15 +605,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			int columnIndex = 0;
 			for (; columnIndex < columnCount; columnIndex++)
 			{
-				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
-				ereport(DEBUG3, (errmsg("columnIndex:%d"),columnIndex));
+				ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
 				typeArray[columnIndex] = PQftype(res1,columnIndex);
-				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d"),typeArray[columnIndex]));
+				ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
 				if (typeArray[columnIndex] != InvalidOid) {
 					ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
 					availableColumnCount++;
 				}
-				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d"),columnIndex, PQftype(res1,columnIndex)));
+				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
 			}
 			ereport(DEBUG3, (errmsg("11111")));
 			fi = TypeOutputFunctions(columnCount, typeArray, false);
@@ -639,6 +634,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// 	}
 		// }
 		// write to local file
+		ereport(DEBUG3, (errmsg("PQntuples:%d",PQntuples(res1))));
 		for (int i = 0; i < PQntuples(res1); i++)
 		{
 			Datum *columnValues = palloc0(nFields * sizeof(Datum));
@@ -658,7 +654,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
 				// CopyOutState copyOutState = resultDest->copyOutState;
 			}
-			
+			ereport(DEBUG3, (errmsg("44444")));
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState);
@@ -684,6 +680,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				}
 				appendedColumnCount++;
 			}
+			ereport(DEBUG3, (errmsg("55555")));
 			if (!copyOutState->binary)
 			{
 				/* append default line termination string depending on the platform */
@@ -693,8 +690,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
+			ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
 			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+			ereport(DEBUG3, (errmsg("77777")));
 		}
 		res1 = PQgetResult(conn1);
 	}
