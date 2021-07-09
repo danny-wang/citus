@@ -587,7 +587,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int nFields = PQnfields(res1);
 	int columnCount = nFields;
 	for (int i = 0; i < nFields; i++) {
-		ereport(DEBUG3, (errmsg("%-15s",PQfname(res1, i))));
+		ereport(DEBUG3, (errmsg("%-15s, oid:%d",PQfname(res1, i),PQftype(res1,i))));
 	}
 	FmgrInfo *fi = NULL;
 	//CopyCoercionData *ccd = NULL;
