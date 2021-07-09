@@ -257,6 +257,9 @@ RemoteFileDestReceiverStartup(DestReceiver *dest, int operation,
 	copyOutState->null_print = (char *) nullPrintCharacter;
 	copyOutState->null_print_client = (char *) nullPrintCharacter;
 	copyOutState->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
+	/* ------------- danny test begin ---------------  */
+	copyOutState->binary = false;
+	/* ------------- danny test begin ---------------  */
 	copyOutState->fe_msgbuf = makeStringInfo();
 	copyOutState->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
 	resultDest->copyOutState = copyOutState;
