@@ -371,25 +371,25 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// config DestReceiver
 	const char *delimiterCharacter = "\t";
 	const char *nullPrintCharacter = "\\N";
-	EState *estate = CreateExecutorState();
-	DestReceiver *copyDest1 =
-			CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan1->subPlanId), estate, NULL,
-										 true);	
-	CopyOutState copyOutState = (CopyOutState) palloc0(sizeof(CopyOutStateData));
-	copyOutState->delim = (char *) delimiterCharacter;
-	copyOutState->null_print = (char *) nullPrintCharacter;
-	copyOutState->null_print_client = (char *) nullPrintCharacter;
+	//EState *estate = CreateExecutorState();
+	// DestReceiver *copyDest1 =
+	// 		CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan1->subPlanId), estate, NULL,
+	// 									 true);	
+	CopyOutState copyOutState1 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
+	copyOutState1->delim = (char *) delimiterCharacter;
+	copyOutState1->null_print = (char *) nullPrintCharacter;
+	copyOutState1->null_print_client = (char *) nullPrintCharacter;
 	//copyOutState->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
-	copyOutState->fe_msgbuf = makeStringInfo();
-	copyOutState->need_transcoding = false;
+	copyOutState1->fe_msgbuf = makeStringInfo();
+	copyOutState1->need_transcoding = false;
 	//copyOutState->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
-	RemoteFileDestReceiver *resultDest1 = (RemoteFileDestReceiver *) copyDest1;
-	resultDest1->copyOutState = copyOutState;
+	//RemoteFileDestReceiver *resultDest1 = (RemoteFileDestReceiver *) copyDest1;
+	//resultDest1->copyOutState = copyOutState;
 
-	EState *estate2 = CreateExecutorState();
-	DestReceiver *copyDest2 =
-			CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan2->subPlanId), estate2, NULL,
-										 true);		
+	// EState *estate2 = CreateExecutorState();
+	// DestReceiver *copyDest2 =
+	// 		CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan2->subPlanId), estate2, NULL,
+	// 									 true);		
 	CopyOutState copyOutState2 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
 	copyOutState2->delim = (char *) delimiterCharacter;
 	copyOutState2->null_print = (char *) nullPrintCharacter;
@@ -398,8 +398,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	copyOutState2->fe_msgbuf = makeStringInfo();
 	copyOutState2->need_transcoding = false;
 	//copyOutState2->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
-	RemoteFileDestReceiver *resultDest2 = (RemoteFileDestReceiver *) copyDest2;
-	resultDest1->copyOutState = copyOutState2;
+	// RemoteFileDestReceiver *resultDest2 = (RemoteFileDestReceiver *) copyDest2;
+	// resultDest1->copyOutState = copyOutState2;
 
 
 	// get return value
@@ -467,7 +467,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				// CopyOutState copyOutState = resultDest->copyOutState;
 			}
 			
-			CopyOutState copyOutState = resultDest1->copyOutState;
+			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			for (uint32 columnIndex = 0; columnIndex < totalColumnCount; columnIndex++){
