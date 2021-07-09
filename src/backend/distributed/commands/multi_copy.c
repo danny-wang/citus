@@ -1620,9 +1620,9 @@ AppendCopyRowData(Datum *valueArray, bool *isNullArray, TupleDesc rowDescriptor,
 			if (!isNull)
 			{
 				FmgrInfo *outputFunctionPointer = &columnOutputFunctions[columnIndex];
-				ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
+				//ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
 				char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-				ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
+				//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
 				CopyAttributeOutText(rowOutputState, columnText);
 			}
 			else
