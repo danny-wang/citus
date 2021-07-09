@@ -814,7 +814,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	/* ------------- danny test end ---------------  */
 
 	//DistributedSubPlan *subPlan = NULL;
-	int i =0 ;
+	i =0 ;
 	foreach_ptr(subPlan, subPlanList)
 	{
 		/* ------------- danny test begin ---------------  */
