@@ -1599,6 +1599,7 @@ AppendCopyRowData(Datum *valueArray, bool *isNullArray, TupleDesc rowDescriptor,
 		}
 		else if (rowOutputState->binary)
 		{
+			ereport(DEBUG3, (errmsg("rowOutputState->binary == true")));
 			if (!isNull)
 			{
 				FmgrInfo *outputFunctionPointer = &columnOutputFunctions[columnIndex];
@@ -1615,11 +1616,13 @@ AppendCopyRowData(Datum *valueArray, bool *isNullArray, TupleDesc rowDescriptor,
 		}
 		else
 		{
+			ereport(DEBUG3, (errmsg("rowOutputState->binary == false")));
 			if (!isNull)
 			{
 				FmgrInfo *outputFunctionPointer = &columnOutputFunctions[columnIndex];
+				ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
 				char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-
+				ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
 				CopyAttributeOutText(rowOutputState, columnText);
 			}
 			else
