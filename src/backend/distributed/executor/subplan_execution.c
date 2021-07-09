@@ -125,6 +125,30 @@ long getTimeUsec()
 // 	FreeExecutorState(estate);
 // }
 
+/* *INDENT-ON* */
+/* Helper function to send pending copy output */
+static inline void
+CopyFlushOutput(CopyOutState cstate, char *start, char *pointer)
+{
+	if (pointer > start)
+	{
+		CopySendData(cstate, start, pointer - start);
+	}
+}
+
+/* Append a striong to the copy buffer in outputState. */
+static void
+CopySendString(CopyOutState outputState, const char *str)
+{
+	appendBinaryStringInfo(outputState->fe_msgbuf, str, strlen(str));
+}
+
+/* Append a char to the copy buffer in outputState. */
+static void
+CopySendChar(CopyOutState outputState, char c)
+{
+	appendStringInfoCharMacro(outputState->fe_msgbuf, c);
+}
 
 /*
  * TypeOutputFunctions takes an array of types and returns an array of output functions
@@ -257,19 +281,7 @@ CopyAttributeOutText(CopyOutState cstate, char *string)
 	CopyFlushOutput(cstate, start, pointer);
 }
 
-/* Append a striong to the copy buffer in outputState. */
-static void
-CopySendString(CopyOutState outputState, const char *str)
-{
-	appendBinaryStringInfo(outputState->fe_msgbuf, str, strlen(str));
-}
 
-/* Append a char to the copy buffer in outputState. */
-static void
-CopySendChar(CopyOutState outputState, char c)
-{
-	appendStringInfoCharMacro(outputState->fe_msgbuf, c);
-}
 
 
 /* ------------- danny test end ---------------  */
