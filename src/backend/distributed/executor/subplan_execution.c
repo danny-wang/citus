@@ -113,6 +113,46 @@ long getTimeUsec()
 // 	SubPlanLevel--;
 // 	FreeExecutorState(estate);
 // }
+
+
+/*
+ * TypeOutputFunctions takes an array of types and returns an array of output functions
+ * for those types.
+ */
+static FmgrInfo *
+TypeOutputFunctions(uint32 columnCount, Oid *typeIdArray, bool binaryFormat)
+{
+	FmgrInfo *columnOutputFunctions = palloc0(columnCount * sizeof(FmgrInfo));
+
+	for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++)
+	{
+		FmgrInfo *currentOutputFunction = &columnOutputFunctions[columnIndex];
+		Oid columnTypeId = typeIdArray[columnIndex];
+		bool typeVariableLength = false;
+		Oid outputFunctionId = InvalidOid;
+
+		if (columnTypeId == InvalidOid)
+		{
+			/* TypeArrayFromTupleDescriptor decided to skip this column */
+			continue;
+		}
+		else if (binaryFormat)
+		{
+			getTypeBinaryOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
+		}
+		else
+		{
+			getTypeOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
+		}
+
+		fmgr_info(outputFunctionId, currentOutputFunction);
+	}
+
+	return columnOutputFunctions;
+}
+
+
+
 /* ------------- danny test end ---------------  */
 
 /*
@@ -407,7 +447,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	PGresult   *res2;
 	res1 = PQgetResult(conn1);
 	int nFields = PQnfields(res1);
-	int columnIndex = nFields;
+	int columnCount = nFields;
 	for (int i = 0; i < nFields; i++) {
 		ereport(DEBUG3, (errmsg("%-15s",PQfname(res1, i))));
 	}
