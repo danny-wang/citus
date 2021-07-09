@@ -670,7 +670,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				}
 				appendedColumnCount++;
 			}
-			if (!rowOutputState->binary)
+			if (!copyOutState->binary)
 			{
 				/* append default line termination string depending on the platform */
 		#ifndef WIN32
@@ -701,7 +701,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			break;
 		for (int i = 0; i < PQntuples(res2); i++)
 		{
-			for (int j = 0; j < nFields; j++)
+			//for (int j = 0; j < nFields; j++)
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res2, i, j))));
 		}
 		res1 = PQgetResult(conn2);
