@@ -2046,7 +2046,7 @@ BuildSubPlanResultQuery(List *targetEntryList, List *columnAliasList, char *resu
 	Oid functionOid = CitusReadIntermediateResultFuncId();
 	bool useBinaryCopyFormat = CanUseBinaryCopyFormatForTargetList(targetEntryList);
 	/* ------------- danny test begin ---------------  */
-	bool useBinaryCopyFormat = false;
+	useBinaryCopyFormat = false;
 	/* ------------- danny test end ---------------  */
 	Const *resultIdConst = makeNode(Const);
 	resultIdConst->consttype = TEXTOID;
