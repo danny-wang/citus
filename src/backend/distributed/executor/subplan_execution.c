@@ -125,6 +125,13 @@ long getTimeUsec()
 // 	FreeExecutorState(estate);
 // }
 
+/* Append data to the copy buffer in outputState */
+static void
+CopySendData(CopyOutState outputState, const void *databuf, int datasize)
+{
+	appendBinaryStringInfo(outputState->fe_msgbuf, databuf, datasize);
+}
+
 /* *INDENT-ON* */
 /* Helper function to send pending copy output */
 static inline void
@@ -640,7 +647,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
-			resetStringInfo(copyOutState->fe_msgbuf);
+			resetStringInfo(copyOutState);
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				Datum value = columnValues[columnIndex];
 				bool isNull = columnNulls[columnIndex];
@@ -651,13 +658,13 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
 						char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-						CopyAttributeOutText(rowOutputState, columnText);
+						CopyAttributeOutText(copyOutState, columnText);
 					} else {
-						CopySendString(rowOutputState, rowOutputState->null_print_client);
+						CopySendString(copyOutState, rowOutputState->null_print_client);
 					}
 					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
 					if (!lastColumn){
-						CopySendChar(rowOutputState, rowOutputState->delim[0]);
+						CopySendChar(copyOutState, rowOutputState->delim[0]);
 					}
 
 				}
@@ -667,9 +674,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			{
 				/* append default line termination string depending on the platform */
 		#ifndef WIN32
-				CopySendChar(rowOutputState, '\n');
+				CopySendChar(copyOutState, '\n');
 		#else
-				CopySendString(rowOutputState, "\r\n");
+				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
 			WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
