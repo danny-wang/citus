@@ -671,9 +671,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
 						ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
-						char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-						ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
-						CopyAttributeOutText(copyOutState, columnText);
+						//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
+						//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
+						//CopyAttributeOutText(copyOutState, columnText);
+						CopyAttributeOutText(copyOutState, (char *)value);
 					} else {
 						CopySendString(copyOutState, copyOutState->null_print_client);
 					}
