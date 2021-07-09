@@ -660,11 +660,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						char *columnText = OutputFunctionCall(outputFunctionPointer, value);
 						CopyAttributeOutText(copyOutState, columnText);
 					} else {
-						CopySendString(copyOutState, rowOutputState->null_print_client);
+						CopySendString(copyOutState, copyOutState->null_print_client);
 					}
 					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
 					if (!lastColumn){
-						CopySendChar(copyOutState, rowOutputState->delim[0]);
+						CopySendChar(copyOutState, copyOutState->delim[0]);
 					}
 
 				}
