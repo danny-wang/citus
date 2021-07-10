@@ -574,6 +574,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	copyOutState1->null_print = (char *) nullPrintCharacter;
 	copyOutState1->null_print_client = (char *) nullPrintCharacter;
 	//copyOutState->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
+	copyOutState->binary = true;
 	copyOutState1->fe_msgbuf = makeStringInfo();
 	copyOutState1->need_transcoding = false;
 	//copyOutState->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
@@ -589,6 +590,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	copyOutState2->null_print = (char *) nullPrintCharacter;
 	copyOutState2->null_print_client = (char *) nullPrintCharacter;
 	//copyOutState2->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
+	copyOutState2->binary = true
 	copyOutState2->fe_msgbuf = makeStringInfo();
 	copyOutState2->need_transcoding = false;
 	//copyOutState2->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
