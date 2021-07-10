@@ -135,6 +135,14 @@ CopySendData(CopyOutState outputState, const void *databuf, int datasize)
 	appendBinaryStringInfo(outputState->fe_msgbuf, databuf, datasize);
 }
 
+/* Append an int16 to the copy buffer in outputState. */
+static void
+CopySendInt16(CopyOutState outputState, int16 val)
+{
+	uint16 buf = htons((uint16) val);
+	CopySendData(outputState, &buf, sizeof(buf));
+}
+
 /* Append an int32 to the copy buffer in outputState. */
 static void
 CopySendInt32(CopyOutState outputState, int32 val)
@@ -681,6 +689,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			bool binary = true;
+			if (copyOutState->binary)
+			{
+				CopySendInt16(copyOutState, availableColumnCount);
+			}
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
@@ -697,11 +709,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size - VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
@@ -807,6 +819,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			bool binary = true;
+			if (copyOutState->binary)
+			{
+				CopySendInt16(copyOutState, availableColumnCount);
+			}
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
@@ -823,11 +839,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size- VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
