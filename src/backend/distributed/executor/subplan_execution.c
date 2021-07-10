@@ -658,6 +658,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			int *columeSizes = palloc0(nFields * sizeof(int));
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
+			memset(columeSizes, 0, nFields * sizeof(int));
+
 			for (int j = 0; j < nFields; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res1, i, j))
@@ -678,10 +680,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			resetStringInfo(copyOutState->fe_msgbuf);
 			bool binary = true;
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-				ereport(DEBUG3, (errmsg("44444------")));
+				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
 				int size = columeSizes[columnIndex];
-				ereport(DEBUG3, (errmsg("44444@@@@@")));
+				//ereport(DEBUG3, (errmsg("44444@@@@@")));
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
@@ -689,25 +691,25 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					continue;
 				} else if (binary) {
 					if (!isNull) {
-						ereport(DEBUG3, (errmsg("4.1")));
+						//ereport(DEBUG3, (errmsg("4.1")));
 						//bytea *outputBytes = DatumGetByteaP(value);
-						ereport(DEBUG3, (errmsg("4.2")));
+						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
 						CopySendInt32(copyOutState, size);
-						ereport(DEBUG3, (errmsg("4.3")));
+						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
 						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
-						ereport(DEBUG3, (errmsg("4.4")));
+						//ereport(DEBUG3, (errmsg("4.4")));
 						CopySendInt32(copyOutState, -1);
 					}
 				} else {
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-						ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
+						//ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
 						//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
 						//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
 						//CopyAttributeOutText(copyOutState, columnText);
@@ -723,7 +725,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				}
 				appendedColumnCount++;
 			}
-			ereport(DEBUG3, (errmsg("55555")));
+			//ereport(DEBUG3, (errmsg("55555")));
 			if (!copyOutState->binary)
 			{
 				/* append default line termination string depending on the platform */
@@ -733,10 +735,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
-			ereport(DEBUG3, (errmsg("66666")));
+			//ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
-			ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-			ereport(DEBUG3, (errmsg("77777")));
+			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		res1 = PQgetResult(conn1);
 	}
@@ -779,8 +781,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		{
 			Datum *columnValues = palloc0(nFields * sizeof(Datum));
 			bool *columnNulls = palloc0(nFields * sizeof(bool));
+			int *columeSizes = palloc0(nFields * sizeof(int));
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
+			memset(columeSizes, 0, nFields * sizeof(int));
+
 			for (int j = 0; j < nFields; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res2, i, j))
@@ -802,6 +807,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
+				int size = columeSizes[columnIndex];
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
@@ -809,10 +815,16 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					continue;
 				} else if (binary) {
 					if (!isNull) {
-						bytea *outputBytes = DatumGetByteaP(value);
-						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, VARDATA(outputBytes),
-							 VARSIZE(outputBytes) - VARHDRSZ);
+						//bytea *outputBytes = DatumGetByteaP(value);
+						//ereport(DEBUG3, (errmsg("4.1")));
+						//bytea *outputBytes = DatumGetByteaP(value);
+						//ereport(DEBUG3, (errmsg("4.2")));
+						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendInt32(copyOutState, size);
+						//ereport(DEBUG3, (errmsg("4.3")));
+						//CopySendData(copyOutState, VARDATA(outputBytes),
+						//	 VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
