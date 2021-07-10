@@ -697,11 +697,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size- VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
@@ -792,6 +792,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res2, i, j))
 				{
+					columeSizes[j] = PQgetlength(res1,i,j);
 					columnValues[j] = NULL;
 					columnNulls[j] = true;
 				}
@@ -822,11 +823,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size- VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
