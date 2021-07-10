@@ -792,10 +792,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res2, i, j))
 				{
-					columeSizes[j] = PQgetlength(res1,i,j);
 					columnValues[j] = NULL;
 					columnNulls[j] = true;
 				}
+				columeSizes[j] = PQgetlength(res2,i,j);
 				char *value = PQgetvalue(res2, i, j);
 				columnValues[j] = (Datum)value;
 				//AppendCopyRowData
