@@ -697,11 +697,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size);
+						CopySendInt32(copyOutState, size- VARHDRSZ);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size);
+						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
 					}
 					else
 					{
@@ -822,11 +822,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendInt32(copyOutState, size);
+						CopySendInt32(copyOutState, size- VARHDRSZ);
 						//ereport(DEBUG3, (errmsg("4.3")));
 						//CopySendData(copyOutState, VARDATA(outputBytes),
 						//	 VARSIZE(outputBytes) - VARHDRSZ);
-						CopySendData(copyOutState, (char *)value, size);
+						CopySendData(copyOutState, (char *)value, size- VARHDRSZ);
 					}
 					else
 					{
