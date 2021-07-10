@@ -655,6 +655,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		{
 			Datum *columnValues = palloc0(nFields * sizeof(Datum));
 			bool *columnNulls = palloc0(nFields * sizeof(bool));
+			int *columeSizes = palloc0(nFields * sizeof(int));
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
 			for (int j = 0; j < nFields; j++){
@@ -664,6 +665,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					columnValues[j] = NULL;
 					columnNulls[j] = true;
 				}
+				columeSizes[j] = PQgetlength(res1,i,j);
 				char *value = PQgetvalue(res1, i, j);
 				columnValues[j] = (Datum)value;
 				//AppendCopyRowData
@@ -678,6 +680,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
+				int size = columeSizes[columnIndex];
 				ereport(DEBUG3, (errmsg("44444@@@@@")));
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
@@ -687,12 +690,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else if (binary) {
 					if (!isNull) {
 						ereport(DEBUG3, (errmsg("4.1")));
-						bytea *outputBytes = DatumGetByteaP(value);
+						//bytea *outputBytes = DatumGetByteaP(value);
 						ereport(DEBUG3, (errmsg("4.2")));
-						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						ereport(DEBUG3, (errmsg("4.3")));
-						CopySendData(copyOutState, VARDATA(outputBytes),
-							 VARSIZE(outputBytes) - VARHDRSZ);
+						//CopySendData(copyOutState, VARDATA(outputBytes),
+						//	 VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
