@@ -126,11 +126,21 @@ long getTimeUsec()
 // 	FreeExecutorState(estate);
 // }
 
+
+
 /* Append data to the copy buffer in outputState */
 static void
 CopySendData(CopyOutState outputState, const void *databuf, int datasize)
 {
 	appendBinaryStringInfo(outputState->fe_msgbuf, databuf, datasize);
+}
+
+/* Append an int32 to the copy buffer in outputState. */
+static void
+CopySendInt32(CopyOutState outputState, int32 val)
+{
+	uint32 buf = htonl((uint32) val);
+	CopySendData(outputState, &buf, sizeof(buf));
 }
 
 /* *INDENT-ON* */
