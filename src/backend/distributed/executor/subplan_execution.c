@@ -32,6 +32,7 @@
 #include "postgres.h"
 #include "libpq-fe.h"
 #include "libpq-int.h"
+#include "fmgr.h"
 #include "pqexpbuffer.h"
 #include "distributed/connection_management.h"
 #include "distributed/adaptive_executor.h"
@@ -528,8 +529,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	DistributedPlan *node2 = GetDistributedPlan((CustomScan *) subPlan2->plan->planTree);
     Task *task1 = (Task *)linitial(node1->workerJob->taskList);
     Task *task2 = (Task *)linitial(node2->workerJob->taskList);
-	int rc1 = PQsendQuery(conn1, task1->taskQuery.data.queryStringLazy);
-	int rc2 = PQsendQuery(conn2, task2->taskQuery.data.queryStringLazy);
+	//int rc1 = PQsendQuery(conn1, task1->taskQuery.data.queryStringLazy);
+	int rc1 = PQsendQueryParams(conn1, task1->taskQuery.data.queryStringLazy, 0, NULL,
+							   NULL, NULL, NULL, 1);
+	//int rc2 = PQsendQuery(conn2, task2->taskQuery.data.queryStringLazy);
+	int rc2 = PQsendQueryParams(conn2, task2->taskQuery.data.queryStringLazy, 0, NULL,
+							   NULL, NULL, NULL, 1);
 	ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d, sql:%s",rc1,rc2,task1->taskQuery.data.queryStringLazy)));
 	ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",conn1->errorMessage.data,conn2->errorMessage.data)));
 
@@ -659,6 +664,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
+			bool binary = true;
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
@@ -667,6 +673,17 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
 					continue;
+				} else if (binary) {
+					if (!isNull) {
+						bytea *outputBytes = DatumGetByteaP(value);
+						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, VARDATA(outputBytes),
+							 VARSIZE(outputBytes) - VARHDRSZ);
+					}
+					else
+					{
+						CopySendInt32(copyOutState, -1);
+					}
 				} else {
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
@@ -761,6 +778,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
+			bool binary = true;
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
@@ -769,6 +787,17 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
 					continue;
+				} else if (binary) {
+					if (!isNull) {
+						bytea *outputBytes = DatumGetByteaP(value);
+						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, VARDATA(outputBytes),
+							 VARSIZE(outputBytes) - VARHDRSZ);
+					}
+					else
+					{
+						CopySendInt32(copyOutState, -1);
+					}
 				} else {
 					if (!isNull) {
 						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
@@ -823,7 +852,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			continue;
 		}
 		if (i==5){
-			//sleep(5);
+			sleep(100);
 		}
 		long start_time = getTimeUsec()/1000;
 		/* ------------- danny test end ---------------  */
