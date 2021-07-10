@@ -678,20 +678,25 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				ereport(DEBUG3, (errmsg("44444------")));
 				Datum value = columnValues[columnIndex];
-				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				ereport(DEBUG3, (errmsg("44444@@@@@")));
+				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
 					continue;
 				} else if (binary) {
 					if (!isNull) {
+						ereport(DEBUG3, (errmsg("4.1")));
 						bytea *outputBytes = DatumGetByteaP(value);
+						ereport(DEBUG3, (errmsg("4.2")));
 						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						ereport(DEBUG3, (errmsg("4.3")));
 						CopySendData(copyOutState, VARDATA(outputBytes),
 							 VARSIZE(outputBytes) - VARHDRSZ);
 					}
 					else
 					{
+						ereport(DEBUG3, (errmsg("4.4")));
 						CopySendInt32(copyOutState, -1);
 					}
 				} else {
