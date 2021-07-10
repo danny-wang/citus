@@ -903,7 +903,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			continue;
 		}
 		if (i==5){
-			sleep(5);
+			sleep(200);
 		}
 		long start_time = getTimeUsec()/1000;
 		/* ------------- danny test end ---------------  */
