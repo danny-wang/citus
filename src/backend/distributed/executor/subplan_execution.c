@@ -691,7 +691,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			bool binary = true;
 			if (copyOutState->binary)
 			{
-				CopySendInt16(copyOutState, availableColumnCount);
+				ereport(DEBUG3, (errmsg("CopySendInt16")));
+				CopySendInt16(copyOutState, nFields);
 			}
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
@@ -821,7 +822,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			bool binary = true;
 			if (copyOutState->binary)
 			{
-				CopySendInt16(copyOutState, availableColumnCount);
+				ereport(DEBUG3, (errmsg("CopySendInt16")));
+				CopySendInt16(copyOutState, nFields);
 			}
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
