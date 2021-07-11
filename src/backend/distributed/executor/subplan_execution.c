@@ -641,7 +641,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
 			}
 			ereport(DEBUG3, (errmsg("11111")));
-			fi = TypeOutputFunctions(columnCount, typeArray, false);
+			fi = TypeOutputFunctions(columnCount, typeArray, true);
 			ereport(DEBUG3, (errmsg("22222")));
 		}
 		ereport(DEBUG3, (errmsg("3333")));
@@ -791,7 +791,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				//ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
 			}
 			//ereport(DEBUG3, (errmsg("11111")));
-			fi = TypeOutputFunctions(columnCount, typeArray, false);
+			fi = TypeOutputFunctions(columnCount, typeArray, true);
 			//ereport(DEBUG3, (errmsg("22222")));
 		}
 		for (int i = 0; i < PQntuples(res2); i++)
