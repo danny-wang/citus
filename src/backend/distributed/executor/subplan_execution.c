@@ -707,7 +707,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else if (binary) {
 					if (!isNull) {
 						//ereport(DEBUG3, (errmsg("4.1")));
-						bytea *outputBytes = DatumGetByteaP(value);
+						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
+						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
 						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
 						//CopySendInt32(copyOutState, size);
@@ -836,7 +838,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					continue;
 				} else if (binary) {
 					if (!isNull) {
-						bytea *outputBytes = DatumGetByteaP(value);
+						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
+						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.1")));
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
