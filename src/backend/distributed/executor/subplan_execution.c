@@ -388,7 +388,7 @@ typedef struct SubPlanParallelExecution
 	 * do cleanup for repartition queries.
 	 */
 	List *jobIdList;
-}
+};
 /* ------------- danny test end ---------------  */
 
 /*
@@ -563,7 +563,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	foreach_ptr(subPlan, subPlanList) {
 		PlannedStmt *plannedStmt = subPlan->plan;
 		if (plannedStmt->commandType == 1 && plannedStmt->hasReturning == false && plannedStmt->hasModifyingCTE == false){
-
+			;
 		}
 
 	}
