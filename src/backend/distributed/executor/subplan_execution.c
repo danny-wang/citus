@@ -577,8 +577,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		bool useIntermediateResult = false;
 		IntermediateResultsHashEntry *entry =
 			SearchIntermediateResult(intermediateResultsHash, resultId);
-			
-    
 		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
@@ -598,6 +596,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						plan->subPlan = subPlan;
 						plan->fileName = QueryResultFileName(resultId);
+						CreateIntermediateResultsDirectory();
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
 																				 fileFlags,
 																				 fileMode));
