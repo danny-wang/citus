@@ -313,7 +313,82 @@ CopyAttributeOutText(CopyOutState cstate, char *string)
 
 
 
+typedef struct SubPlanParallel {
+	DistributedSubPlan *subPlan;
+	char *fileName;
+	PGconn *conn;
+} SubPlanParallel;
 
+
+typedef struct SubPlanParallelExecution
+{
+	/*
+	 * Flag to indiciate that the set of connections we are interested
+	 * in has changed and waitEventSet needs to be rebuilt.
+	 */
+	bool rebuildWaitEventSet;
+	/*
+	 * Flag to indiciate that the set of wait events we are interested
+	 * in might have changed and waitEventSet needs to be updated.
+	 *
+	 * Note that we set this flag whenever we assign a value to waitFlags,
+	 * but we don't check that the waitFlags is actually different from the
+	 * previous value. So we might have some false positives for this flag,
+	 * which is OK, because in this case ModifyWaitEvent() is noop.
+	 */
+	bool waitFlagsChanged;
+	/*
+	 * WaitEventSet used for waiting for I/O events.
+	 *
+	 * This could also be local to RunDistributedExecution(), but in that case
+	 * we had to mark it as "volatile" to avoid PG_TRY()/PG_CATCH() issues, and
+	 * cast it to non-volatile when doing WaitEventSetFree(). We thought that
+	 * would make code a bit harder to read than making this non-local, so we
+	 * move it here. See comments for PG_TRY() in postgres/src/include/elog.h
+	 * and "man 3 siglongjmp" for more context.
+	 */
+	WaitEventSet *waitEventSet;
+	/* total number of tasks to execute */
+	int totalTaskCount;
+
+	/* number of tasks that still need to be executed */
+	int unfinishedTaskCount;
+	/*
+	 * Flag to indicate whether throwing errors on cancellation is
+	 * allowed.
+	 */
+	bool raiseInterrupts;
+	/* indicates whether distributed execution has failed */
+	bool failed;
+	/*
+	 * For SELECT commands or INSERT/UPDATE/DELETE commands with RETURNING,
+	 * the total number of rows received from the workers. For
+	 * INSERT/UPDATE/DELETE commands without RETURNING, the total number of
+	 * tuples modified.
+	 *
+	 * Note that for replicated tables (e.g., reference tables), we only consider
+	 * a single replica's rows that are processed.
+	 */
+	uint64 rowsProcessed;
+
+	/*
+	 * The following fields are used while receiving results from remote nodes.
+	 * We store this information here to avoid re-allocating it every time.
+	 *
+	 * columnArray field is reset/calculated per row, so might be useless for
+	 * other contexts. The benefit of keeping it here is to avoid allocating
+	 * the array over and over again.
+	 */
+	uint32 allocatedColumnCount;
+	void **columnArray;
+	StringInfoData *stringInfoDataArray;
+
+	/*
+	 * jobIdList contains all jobs in the job tree, this is used to
+	 * do cleanup for repartition queries.
+	 */
+	List *jobIdList;
+}
 /* ------------- danny test end ---------------  */
 
 /*
@@ -369,6 +444,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	{
 		PlannedStmt *plannedStmt = subPlan5->plan;
 		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+		elog_node_display(LOG, "plannedStmt rtable parse tree", plannedStmt->rtable, Debug_pretty_print);
+		elog_node_display(LOG, "plannedStmt subplans parse tree", plannedStmt->subplans, Debug_pretty_print);
 	}
 	/* ------------- danny test begin ---------------  */
 
@@ -478,20 +555,37 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// }
 	// sleep(20);
 	// return;
-	List *newDistrubutedSubPlans = NULL;
+
+	// 1. find all independent subplans
+	List *sequenceJobList;
+	List *parallelJobList;
 	DistributedSubPlan *subPlan = NULL;
+	foreach_ptr(subPlan, subPlanList) {
+		PlannedStmt *plannedStmt = subPlan->plan;
+		if (plannedStmt->commandType == 1 && plannedStmt->hasReturning == false && plannedStmt->hasModifyingCTE == false){
+
+		}
+
+	}
+	// 2. run these independent subplans parallel
+	WaitEvent *events = NULL;
+
+	// 3. run dependent subplans sequentially
+
+	List *newDistrubutedSubPlans = NULL;
+	DistributedSubPlan *subPlanxx = NULL;
 	int i = 0;
 	DistributedSubPlan *subPlan1 = NULL;
 	DistributedSubPlan *subPlan2 = NULL;
-	foreach_ptr(subPlan, subPlanList)
+	foreach_ptr(subPlanxx, subPlanList)
 	{	
 		if (i== 0 || i==1) {
-			newDistrubutedSubPlans = lappend(newDistrubutedSubPlans, subPlan);
+			newDistrubutedSubPlans = lappend(newDistrubutedSubPlans, subPlanxx);
 		}
 		if (i==0) {
-			subPlan1 = subPlan;
+			subPlan1 = subPlanxx;
 		} else if (i==1) {
-			subPlan2 = subPlan;
+			subPlan2 = subPlanxx;
 		}
 		i++;
 	}
