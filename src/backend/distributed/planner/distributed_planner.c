@@ -152,7 +152,7 @@ RecursivelyRegenerateSubqueries(Query *query) {
 			//outerSqlHasWhere = true;
 			Query* subquery = rte->subquery;
 			// subquery don't have from and where statement, only have union
-			if (subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasWindowFuncs == false&& subquery->hasTargetSRFs == false
+			if (subquery != NULL && subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasWindowFuncs == false&& subquery->hasTargetSRFs == false
 				&& subquery->hasSubLinks == false && subquery->hasDistinctOn == false && subquery->hasRecursive == false&& subquery->hasModifyingCTE == false
 				&& subquery->hasForUpdate == false&& subquery->hasRowSecurity == false && subquery->cteList == NULL && subquery->jointree != NULL 
 				&& list_length(subquery->jointree->fromlist) == 0 && subquery->jointree->quals == NULL && subquery->setOperations != NULL){
