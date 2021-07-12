@@ -579,7 +579,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			SearchIntermediateResult(intermediateResultsHash, resultId);
 			
     
-		if (plannedStmt != NULL && plannedStmt->planTree != NULL plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
+		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
@@ -595,7 +595,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					}
 				}
 				if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
-					SubPlanParallel plan = (SubPlanParallel) palloc0(sizeof(SubPlanParallel));
+					SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 					plan->subPlan = subPlan;
 					plan->fileName = QueryResultFileName(resultId);
 					plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
@@ -805,7 +805,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			#endif
 				}
 				//ereport(DEBUG3, (errmsg("66666")));
-				WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
+				WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);	
 				//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 				//ereport(DEBUG3, (errmsg("77777")));
 			}
