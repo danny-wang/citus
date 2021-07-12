@@ -583,32 +583,36 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
-			if (list_length(customScan->custom_private) == 1 && list_length(task->taskPlacementList) == 1 
-				&&CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
+			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
 				DistributedPlan *node1 = GetDistributedPlan(customScan);
  			 	Task *task = (Task *)linitial(node1->workerJob->taskList);
- 			 	RangeTblEntry *rte = NULL;
-				foreach_ptr(rte, plannedStmt->rtable) {
-					if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
-						useIntermediateResult = true;
-						break;
+ 			 	if (list_length(task->taskPlacementList) == 1 ) {
+					RangeTblEntry *rte = NULL;
+					foreach_ptr(rte, plannedStmt->rtable) {
+						if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
+							useIntermediateResult = true;
+							break;
+						}
 					}
-				}
-				if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
-					SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
-					plan->subPlan = subPlan;
-					plan->fileName = QueryResultFileName(resultId);
-					plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
-																			 fileFlags,
-																			 fileMode));
-					ShardPlacement* en = (ShardPlacement*) linitial(task->taskPlacementList);
-					plan->nodeName = en->nodeName;
-					plan->nodePort = en->nodePort; 
-					plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
-					parallelJobList = lappend(parallelJobList, plan);
-				} else {
+					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
+						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
+						plan->subPlan = subPlan;
+						plan->fileName = QueryResultFileName(resultId);
+						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
+																				 fileFlags,
+																				 fileMode));
+						ShardPlacement* en = (ShardPlacement*) linitial(task->taskPlacementList);
+						plan->nodeName = en->nodeName;
+						plan->nodePort = en->nodePort; 
+						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
+						parallelJobList = lappend(parallelJobList, plan);
+					} else {
+						sequenceJobList = lappend(sequenceJobList, subPlan);
+					}
+ 			 	} else {
 					sequenceJobList = lappend(sequenceJobList, subPlan);
-				}
+ 			 	}
+ 			 	
 			} else {
 				sequenceJobList = lappend(sequenceJobList, subPlan);
 			}
@@ -617,6 +621,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
+	ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
 	// 2. run these independent subplans parallel
 	//WaitEvent *events = NULL;
 	
