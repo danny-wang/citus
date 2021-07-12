@@ -821,7 +821,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else {
 					char *value = PQgetvalue(res2, i, j);
 					if (copyOutState->binary){
-						if (PQfformat(res2, j) = 0){
+						if (PQfformat(res2, j) == 0){
 							ereport(ERROR, (errmsg("unexpected text result")));
 						}
 					}
