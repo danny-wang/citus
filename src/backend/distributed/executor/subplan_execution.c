@@ -200,6 +200,7 @@ TypeOutputFunctions(uint32 columnCount, Oid *typeIdArray, bool binaryFormat)
 		else if (binaryFormat)
 		{
 			getTypeBinaryOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
+			ereport(DEBUG3, (errmsg("columnTypeId:%d binaryOutputFunctionId：%d",columnTypeId,outputFunctionId)));
 		}
 		else
 		{
@@ -669,7 +670,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
 			memset(columeSizes, 0, nFields * sizeof(int));
-
+			CopyOutState copyOutState = copyOutState1;
 			for (int j = 0; j < nFields; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res1, i, j))
@@ -693,7 +694,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				// CopyOutState copyOutState = resultDest->copyOutState;
 			}
 			ereport(DEBUG3, (errmsg("44444")));
-			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			bool binary = true;
@@ -802,6 +802,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			fi = TypeOutputFunctions(columnCount, typeArray, true);
 			//ereport(DEBUG3, (errmsg("22222")));
 		}
+		CopyOutState copyOutState = copyOutState1;
 		for (int i = 0; i < PQntuples(res2); i++)
 		{
 			Datum *columnValues = palloc0(nFields * sizeof(Datum));
@@ -832,7 +833,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				// CopyOutState copyOutState = resultDest->copyOutState;
 			}
 			//ereport(DEBUG3, (errmsg("44444")));
-			CopyOutState copyOutState = copyOutState1;
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			bool binary = true;
