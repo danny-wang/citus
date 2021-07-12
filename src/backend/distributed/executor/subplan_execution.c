@@ -56,6 +56,7 @@ int MaxIntermediateResult = 1048576; /* maximum size in KB the intermediate resu
 int SubPlanLevel = 0;
 
 /* ------------- danny test begin ---------------  */
+static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
 long getTimeUsec()
 {
     struct timeval t;
@@ -621,6 +622,17 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	//CopyCoercionData *ccd = NULL;
 	Oid *typeArray = NULL;
 	int availableColumnCount = 0;
+	CopyOutState copyOutState = copyOutState1;
+	resetStringInfo(copyOutState->fe_msgbuf);
+	/* Signature */
+	CopySendData(copyOutState, BinarySignature, 11);
+
+	/* Flags field (no OIDs) */
+	CopySendInt32(copyOutState, zero);
+
+	/* No header extension */
+	CopySendInt32(copyOutState, zero);
+	WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);
 	while (true)
 	{
 		ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
@@ -670,7 +682,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			memset(columnValues, 0, nFields * sizeof(Datum));
 			memset(columnNulls, 0, nFields * sizeof(bool));
 			memset(columeSizes, 0, nFields * sizeof(int));
-			CopyOutState copyOutState = copyOutState1;
 			for (int j = 0; j < nFields; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(res1, i, j))
@@ -780,6 +791,16 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	}
 	fi = NULL;
 	availableColumnCount = 0;
+	resetStringInfo(copyOutState->fe_msgbuf);
+	/* Signature */
+	CopySendData(copyOutState, BinarySignature, 11);
+
+	/* Flags field (no OIDs) */
+	CopySendInt32(copyOutState, zero);
+
+	/* No header extension */
+	CopySendInt32(copyOutState, zero);
+	WriteToLocalFile(copyOutState->fe_msgbuf, &fc2);
 	while (true)
 	{
 		if (!res2)
