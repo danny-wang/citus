@@ -676,10 +676,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				{
 					columnValues[j] = NULL;
 					columnNulls[j] = true;
+				}else {
+					char *value = PQgetvalue(res1, i, j);
+					if (copyOutState->binary){
+						if (PQfformat(res1, j) == 0){
+							ereport(ERROR, (errmsg("unexpected text result")));
+						}
+					}
+					columnValues[j] = (Datum)value;
 				}
 				columeSizes[j] = PQgetlength(res1,i,j);
-				char *value = PQgetvalue(res1, i, j);
-				columnValues[j] = (Datum)value;
+				//char *value = PQgetvalue(res1, i, j);
+				//columnValues[j] = (Datum)value;
 				//AppendCopyRowData
 				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
 				// CopyOutState copyOutState = resultDest->copyOutState;
@@ -809,10 +817,16 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				{
 					columnValues[j] = NULL;
 					columnNulls[j] = true;
+				} else {
+					char *value = PQgetvalue(res2, i, j);
+					if (copyOutState->binary){
+						if (PQfformat(res2, j) = 0){
+							ereport(ERROR, (errmsg("unexpected text result")));
+						}
+					}
+					columnValues[j] = (Datum)value;
 				}
 				columeSizes[j] = PQgetlength(res2,i,j);
-				char *value = PQgetvalue(res2, i, j);
-				columnValues[j] = (Datum)value;
 				//AppendCopyRowData
 				// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
 				// CopyOutState copyOutState = resultDest->copyOutState;
