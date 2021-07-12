@@ -683,7 +683,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	
 		/* No header extension */
 		CopySendInt32(copyOutState, zero);
-		WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);
+		WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);
 		while (true)
 		{
 			ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
@@ -1348,6 +1348,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 		SubPlanLevel--;
 		FreeExecutorState(estate);
-		i++;
+		//i++;
 	}
 }
