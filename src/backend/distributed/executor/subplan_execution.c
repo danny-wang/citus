@@ -715,16 +715,16 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				} else if (binary) {
 					if (!isNull) {
 						//ereport(DEBUG3, (errmsg("4.1")));
-						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-						bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
+						//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						//bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
-						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						//CopySendInt32(copyOutState, size);
+						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
-						CopySendData(copyOutState, VARDATA(outputBytes),
-							 VARSIZE(outputBytes) - VARHDRSZ);
-						//CopySendData(copyOutState, (char *)value, size);
+						//CopySendData(copyOutState, VARDATA(outputBytes),
+						//	 VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
@@ -852,18 +852,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					continue;
 				} else if (binary) {
 					if (!isNull) {
-						FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-						bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
+						//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						//bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.1")));
 						//bytea *outputBytes = DatumGetByteaP(value);
 						//ereport(DEBUG3, (errmsg("4.2")));
-						CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-						//CopySendInt32(copyOutState, size);
+						//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendInt32(copyOutState, size);
 						//ereport(DEBUG3, (errmsg("4.3")));
-						CopySendData(copyOutState, VARDATA(outputBytes),
-							 VARSIZE(outputBytes) - VARHDRSZ);
-						//CopySendData(copyOutState, (char *)value, size);
+						//CopySendData(copyOutState, VARDATA(outputBytes),
+						//	 VARSIZE(outputBytes) - VARHDRSZ);
+						CopySendData(copyOutState, (char *)value, size);
 					}
 					else
 					{
