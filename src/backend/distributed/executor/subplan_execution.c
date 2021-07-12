@@ -412,47 +412,47 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		return;
 	}
 	/* ------------- danny test begin ---------------  */
-	elog_node_display(LOG, "distributedPlan parse tree", distributedPlan, Debug_pretty_print);
+	// elog_node_display(LOG, "distributedPlan parse tree", distributedPlan, Debug_pretty_print);
 
-	ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan")));
-	ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type.citus_tag, distributedPlan->planId, distributedPlan->modLevel,
-		distributedPlan->expectResults, distributedPlan->queryId)));
-	if (distributedPlan->workerJob != NULL) {
-		ereport(DEBUG3, (errmsg("job type:%d, jobId:%d, subqueryPushdown:%d, requiresCoordinatorEvaluation:%d, deferredPruning:%d" ,
-			distributedPlan->workerJob->type.citus_tag, distributedPlan->workerJob->jobId, distributedPlan->workerJob->subqueryPushdown,
-		distributedPlan->workerJob->requiresCoordinatorEvaluation,distributedPlan->workerJob->deferredPruning)));
-		StringInfo subqueryString = makeStringInfo();
-		pg_get_query_def(distributedPlan->workerJob->jobQuery, subqueryString);
-		ereport(DEBUG3, (errmsg("jobQuery:%s",ApplyLogRedaction(subqueryString->data))));
-		elog_node_display(LOG, "taskList parse tree", distributedPlan->workerJob->taskList, Debug_pretty_print);
-		elog_node_display(LOG, "dependentJobList parse tree", distributedPlan->workerJob->dependentJobList, Debug_pretty_print);
-		elog_node_display(LOG, "localPlannedStatements parse tree", distributedPlan->workerJob->localPlannedStatements, Debug_pretty_print);
-		elog_node_display(LOG, "partitionKeyValue parse tree", distributedPlan->workerJob->partitionKeyValue, Debug_pretty_print);
-	}
-	elog_node_display(LOG, "combineQuery parse tree", distributedPlan->combineQuery, Debug_pretty_print);
-	elog_node_display(LOG, "relationIdList parse tree", distributedPlan->relationIdList, Debug_pretty_print);
-	elog_node_display(LOG, "insertSelectQuery parse tree", distributedPlan->insertSelectQuery, Debug_pretty_print);
-	elog_node_display(LOG, "selectPlanForInsertSelect parse tree", distributedPlan->selectPlanForInsertSelect, Debug_pretty_print);
-	if (distributedPlan->intermediateResultIdPrefix) {
-		ereport(DEBUG3, (errmsg("insertSelectMethod:%d, intermediateResultIdPrefix:%s, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod,
-	 distributedPlan->intermediateResultIdPrefix, distributedPlan->fastPathRouterPlan)));
-	} else {
-		ereport(DEBUG3, (errmsg("insertSelectMethod:%d, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod, distributedPlan->fastPathRouterPlan)));
-	}
+	// ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ walk into ExecuteSubPlanssubPlan")));
+	// ereport(DEBUG3, (errmsg("type:%d, planId:%d, modLevel:%d, expectResults:%d, queryId:%d" ,distributedPlan->type.citus_tag, distributedPlan->planId, distributedPlan->modLevel,
+	// 	distributedPlan->expectResults, distributedPlan->queryId)));
+	// if (distributedPlan->workerJob != NULL) {
+	// 	ereport(DEBUG3, (errmsg("job type:%d, jobId:%d, subqueryPushdown:%d, requiresCoordinatorEvaluation:%d, deferredPruning:%d" ,
+	// 		distributedPlan->workerJob->type.citus_tag, distributedPlan->workerJob->jobId, distributedPlan->workerJob->subqueryPushdown,
+	// 	distributedPlan->workerJob->requiresCoordinatorEvaluation,distributedPlan->workerJob->deferredPruning)));
+	// 	StringInfo subqueryString = makeStringInfo();
+	// 	pg_get_query_def(distributedPlan->workerJob->jobQuery, subqueryString);
+	// 	ereport(DEBUG3, (errmsg("jobQuery:%s",ApplyLogRedaction(subqueryString->data))));
+	// 	elog_node_display(LOG, "taskList parse tree", distributedPlan->workerJob->taskList, Debug_pretty_print);
+	// 	elog_node_display(LOG, "dependentJobList parse tree", distributedPlan->workerJob->dependentJobList, Debug_pretty_print);
+	// 	elog_node_display(LOG, "localPlannedStatements parse tree", distributedPlan->workerJob->localPlannedStatements, Debug_pretty_print);
+	// 	elog_node_display(LOG, "partitionKeyValue parse tree", distributedPlan->workerJob->partitionKeyValue, Debug_pretty_print);
+	// }
+	// elog_node_display(LOG, "combineQuery parse tree", distributedPlan->combineQuery, Debug_pretty_print);
+	// elog_node_display(LOG, "relationIdList parse tree", distributedPlan->relationIdList, Debug_pretty_print);
+	// elog_node_display(LOG, "insertSelectQuery parse tree", distributedPlan->insertSelectQuery, Debug_pretty_print);
+	// elog_node_display(LOG, "selectPlanForInsertSelect parse tree", distributedPlan->selectPlanForInsertSelect, Debug_pretty_print);
+	// if (distributedPlan->intermediateResultIdPrefix) {
+	// 	ereport(DEBUG3, (errmsg("insertSelectMethod:%d, intermediateResultIdPrefix:%s, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod,
+	//  distributedPlan->intermediateResultIdPrefix, distributedPlan->fastPathRouterPlan)));
+	// } else {
+	// 	ereport(DEBUG3, (errmsg("insertSelectMethod:%d, fastPathRouterPlan:%d" ,distributedPlan->insertSelectMethod, distributedPlan->fastPathRouterPlan)));
+	// }
 	
-	elog_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
-	ereport(DEBUG3, (errmsg("usedSubPlanNodeList length:%d",list_length(distributedPlan->usedSubPlanNodeList))));
-	elog_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
-	DistributedSubPlan *subPlan5 = NULL;
-	ereport(DEBUG3, (errmsg("subPlanList length:%d",list_length(distributedPlan->subPlanList))));
-	foreach_ptr(subPlan5, subPlanList)
-	{
-		PlannedStmt *plannedStmt = subPlan5->plan;
-		elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
-		elog_node_display(LOG, "plannedStmt rtable parse tree", plannedStmt->rtable, Debug_pretty_print);
-		elog_node_display(LOG, "plannedStmt subplans parse tree", plannedStmt->subplans, Debug_pretty_print);
-	}
-	/* ------------- danny test begin ---------------  */
+	// elog_node_display(LOG, "subPlanList parse tree", distributedPlan->subPlanList, Debug_pretty_print);
+	// ereport(DEBUG3, (errmsg("usedSubPlanNodeList length:%d",list_length(distributedPlan->usedSubPlanNodeList))));
+	// elog_node_display(LOG, "usedSubPlanNodeList parse tree", distributedPlan->usedSubPlanNodeList, Debug_pretty_print);
+	// DistributedSubPlan *subPlan5 = NULL;
+	// ereport(DEBUG3, (errmsg("subPlanList length:%d",list_length(distributedPlan->subPlanList))));
+	// foreach_ptr(subPlan5, subPlanList)
+	// {
+	// 	PlannedStmt *plannedStmt = subPlan5->plan;
+	// 	elog_node_display(LOG, "plannedStmt parse tree", plannedStmt, Debug_pretty_print);
+	// 	elog_node_display(LOG, "plannedStmt rtable parse tree", plannedStmt->rtable, Debug_pretty_print);
+	// 	elog_node_display(LOG, "plannedStmt subplans parse tree", plannedStmt->subplans, Debug_pretty_print);
+	// }
+	/* ------------- danny test end ---------------  */
 
 	HTAB *intermediateResultsHash = MakeIntermediateResultHTAB();
 	RecordSubplanExecutionsOnNodes(intermediateResultsHash, distributedPlan);
@@ -575,16 +575,19 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		ParamListInfo params = NULL;
 		char *resultId = GenerateResultId(planId, subPlanId);
 		bool useIntermediateResult = false;
-		IntermediateResultsHashEntry *entry =
-			SearchIntermediateResult(intermediateResultsHash, resultId);
+		IntermediateResultsHashEntry *entry = SearchIntermediateResult(intermediateResultsHash, resultId);
+		ereport(DEBUG3, (errmsg("####### 1")));
 		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
+			ereport(DEBUG3, (errmsg("####### 2")));
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
 			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
+				ereport(DEBUG3, (errmsg("####### 3")));
 				DistributedPlan *node1 = GetDistributedPlan(customScan);
  			 	Task *task = (Task *)linitial(node1->workerJob->taskList);
  			 	if (list_length(task->taskPlacementList) == 1 ) {
+ 			 		ereport(DEBUG3, (errmsg("####### 4")));
 					RangeTblEntry *rte = NULL;
 					foreach_ptr(rte, plannedStmt->rtable) {
 						if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
@@ -592,7 +595,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							break;
 						}
 					}
+					ereport(DEBUG3, (errmsg("####### 5")));
 					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
+						ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						plan->subPlan = subPlan;
 						plan->fileName = QueryResultFileName(resultId);
@@ -606,17 +611,21 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
 						parallelJobList = lappend(parallelJobList, plan);
 					} else {
+						ereport(DEBUG3, (errmsg("####### 7")));
 						sequenceJobList = lappend(sequenceJobList, subPlan);
 					}
  			 	} else {
+ 			 		ereport(DEBUG3, (errmsg("####### 8")));
 					sequenceJobList = lappend(sequenceJobList, subPlan);
  			 	}
  			 	
 			} else {
+				ereport(DEBUG3, (errmsg("####### 9")));
 				sequenceJobList = lappend(sequenceJobList, subPlan);
 			}
 			
 		} else {
+			ereport(DEBUG3, (errmsg("####### 10")));
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
