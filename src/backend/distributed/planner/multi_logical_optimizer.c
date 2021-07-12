@@ -1830,7 +1830,8 @@ MasterAggregateExpression(Aggref *originalAggregate,
 			 aggregateType == AGGREGATE_JSONB_AGG ||
 			 aggregateType == AGGREGATE_JSONB_OBJECT_AGG ||
 			 aggregateType == AGGREGATE_JSON_AGG ||
-			 aggregateType == AGGREGATE_JSON_OBJECT_AGG)
+			 aggregateType == AGGREGATE_JSON_OBJECT_AGG ||
+			 aggregateType == AGGREGATE_ST_ASGEOBUF_AGG)
 	{
 		/*
 		 * Array and json aggregates are handled in two steps. First, we compute
@@ -1863,6 +1864,9 @@ MasterAggregateExpression(Aggref *originalAggregate,
 			/* jsonb_cat_agg() takes jsonb as input */
 			catAggregateName = JSONB_CAT_AGGREGATE_NAME;
 			catInputType = JSONBOID;
+		}else if (aggregateType == AGGREGATE_ST_ASGEOBUF_AGG) {
+			catAggregateName = ST_ASGEOBUF_AGG;
+			catInputType = BYTEAOID;
 		}
 		else
 		{
