@@ -57,6 +57,7 @@ int SubPlanLevel = 0;
 
 /* ------------- danny test begin ---------------  */
 static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
+const int32 zero = 0;
 long getTimeUsec()
 {
     struct timeval t;
