@@ -838,7 +838,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		PQclear(res1);
 		/* close the connection to the database and cleanup */
 		PQfinish(pSubPlan->conn);
-		FileClose(pSubPlan->fileCompat.fd);
+		FileClose(pSubPlan->fc.fd);
 		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	}
 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
