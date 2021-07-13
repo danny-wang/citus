@@ -606,11 +606,15 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
 																				 fileFlags,
 																				 fileMode));
+						ereport(DEBUG3, (errmsg("####### 6.1")));
 						ShardPlacement* en = (ShardPlacement*) linitial(task->taskPlacementList);
+						elog_node_display(LOG, "ShardPlacement parse tree", en, Debug_pretty_print);
 						plan->nodeName = en->nodeName;
 						plan->nodePort = en->nodePort; 
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
+						ereport(DEBUG3, (errmsg("####### 6.2")));
 						parallelJobList = lappend(parallelJobList, plan);
+						ereport(DEBUG3, (errmsg("####### 6.3")));
 					} else {
 						ereport(DEBUG3, (errmsg("####### 7")));
 						sequenceJobList = lappend(sequenceJobList, subPlan);
