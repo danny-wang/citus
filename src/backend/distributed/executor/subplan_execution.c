@@ -691,12 +691,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	foreach_ptr(pSubPlan, parallelJobList) {
 		PGresult   *res1;
 		res1 = PQgetResult(pSubPlan->conn);
-		int nFields = PQnfields(res1);
-		int columnCount = nFields;
+		int columnCount = PQcolumnCount(res1);
 		int availableColumnCount = 0;
-		Oid *typeArray = palloc0(nFields * sizeof(Oid));
-		// ereport(DEBUG3, (errmsg("nFields:%d, columnCount:%d",nFields,columnCount)));
-		for (int i = 0; i < nFields; i++) {
+		Oid *typeArray = palloc0(columnCount * sizeof(Oid));
+		// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
+		for (int columnIndex = 0; columnIndex < columnCount; columnIndex++) {
 			typeArray[columnIndex] = PQftype(res1,columnIndex);
 			if (typeArray[columnIndex] != InvalidOid) {
 				availableColumnCount++;
@@ -718,12 +717,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);
 		while (true)
 		{
-			//ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
+			//ereport(DEBUG3, (errmsg("+++++++++columnCount:%d, columnCount:%d",columnCount,columnCount)));
 			ereport(DEBUG3, (errmsg("walk into while (true) 1")));
 			if (!res1)
 				break;
 			// if (fi == NULL) {
-			// 	typeArray = palloc0(nFields * sizeof(Oid));
+			// 	typeArray = palloc0(columnCount * sizeof(Oid));
 			// 	int columnIndex = 0;
 			// 	for (; columnIndex < columnCount; columnIndex++)
 			// 	{
@@ -759,13 +758,13 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			ereport(DEBUG3, (errmsg("PQntuples:%d",PQntuples(res1))));
 			for (int i = 0; i < PQntuples(res1); i++)
 			{
-				Datum *columnValues = palloc0(nFields * sizeof(Datum));
-				bool *columnNulls = palloc0(nFields * sizeof(bool));
-				int *columeSizes = palloc0(nFields * sizeof(int));
-				memset(columnValues, 0, nFields * sizeof(Datum));
-				memset(columnNulls, 0, nFields * sizeof(bool));
-				memset(columeSizes, 0, nFields * sizeof(int));
-				for (int j = 0; j < nFields; j++){
+				Datum *columnValues = palloc0(columnCount * sizeof(Datum));
+				bool *columnNulls = palloc0(columnCount * sizeof(bool));
+				int *columeSizes = palloc0(columnCount * sizeof(int));
+				memset(columnValues, 0, columnCount * sizeof(Datum));
+				memset(columnNulls, 0, columnCount * sizeof(bool));
+				memset(columeSizes, 0, columnCount * sizeof(int));
+				for (int j = 0; j < columnCount; j++){
 					//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 					if (PQgetisnull(res1, i, j))
 					{
@@ -789,7 +788,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 				if (copyOutState->binary)
 				{
 					//ereport(DEBUG3, (errmsg("CopySendInt16")));
-					CopySendInt16(copyOutState, nFields);
+					CopySendInt16(copyOutState, columnCount);
 				}
 				for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 					//ereport(DEBUG3, (errmsg("44444------")));
@@ -991,10 +990,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// PGresult   *res1;
 	// PGresult   *res2;
 	// res1 = PQgetResult(conn1);
-	// int nFields = PQnfields(res1);
-	// int columnCount = nFields;
-	// ereport(DEBUG3, (errmsg("nFields:%d, columnCount:%d",nFields,columnCount)));
-	// for (int i = 0; i < nFields; i++) {
+	// int columnCount = PQcolumnCount(res1);
+	// int columnCount = columnCount;
+	// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
+	// for (int i = 0; i < columnCount; i++) {
 	// 	ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
 	// }
 	// FmgrInfo *fi = NULL;
@@ -1014,12 +1013,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);
 	// while (true)
 	// {
-	// 	ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
+	// 	ereport(DEBUG3, (errmsg("+++++++++columnCount:%d, columnCount:%d",columnCount,columnCount)));
 	// 	ereport(DEBUG3, (errmsg("walk into while (true) 1")));
 	// 	if (!res1)
 	// 		break;
 	// 	if (fi == NULL) {
-	// 		typeArray = palloc0(nFields * sizeof(Oid));
+	// 		typeArray = palloc0(columnCount * sizeof(Oid));
 	// 		int columnIndex = 0;
 	// 		for (; columnIndex < columnCount; columnIndex++)
 	// 		{
@@ -1055,13 +1054,13 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 	ereport(DEBUG3, (errmsg("PQntuples:%d",PQntuples(res1))));
 	// 	for (int i = 0; i < PQntuples(res1); i++)
 	// 	{
-	// 		Datum *columnValues = palloc0(nFields * sizeof(Datum));
-	// 		bool *columnNulls = palloc0(nFields * sizeof(bool));
-	// 		int *columeSizes = palloc0(nFields * sizeof(int));
-	// 		memset(columnValues, 0, nFields * sizeof(Datum));
-	// 		memset(columnNulls, 0, nFields * sizeof(bool));
-	// 		memset(columeSizes, 0, nFields * sizeof(int));
-	// 		for (int j = 0; j < nFields; j++){
+	// 		Datum *columnValues = palloc0(columnCount * sizeof(Datum));
+	// 		bool *columnNulls = palloc0(columnCount * sizeof(bool));
+	// 		int *columeSizes = palloc0(columnCount * sizeof(int));
+	// 		memset(columnValues, 0, columnCount * sizeof(Datum));
+	// 		memset(columnNulls, 0, columnCount * sizeof(bool));
+	// 		memset(columeSizes, 0, columnCount * sizeof(int));
+	// 		for (int j = 0; j < columnCount; j++){
 	// 			//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 	// 			if (PQgetisnull(res1, i, j))
 	// 			{
@@ -1090,7 +1089,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 		if (copyOutState->binary)
 	// 		{
 	// 			ereport(DEBUG3, (errmsg("CopySendInt16")));
-	// 			CopySendInt16(copyOutState, nFields);
+	// 			CopySendInt16(copyOutState, columnCount);
 	// 		}
 	// 		for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 	// 			//ereport(DEBUG3, (errmsg("44444------")));
@@ -1164,8 +1163,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	// //sleep(60);	
 	// res2 = PQgetResult(conn2);
-	// nFields = PQnfields(res2);
-	// for (int i = 0; i < nFields; i++) {
+	// columnCount = PQcolumnCount(res2);
+	// for (int i = 0; i < columnCount; i++) {
 	// 	ereport(DEBUG3, (errmsg("%-15s",PQfname(res2, i))));
 	// }
 	// fi = NULL;
@@ -1185,7 +1184,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 	if (!res2)
 	// 		break;
 	// 	if (fi == NULL) {
-	// 		typeArray = palloc0(nFields * sizeof(Oid));
+	// 		typeArray = palloc0(columnCount * sizeof(Oid));
 	// 		int columnIndex = 0;
 	// 		for (; columnIndex < columnCount; columnIndex++)
 	// 		{
@@ -1205,14 +1204,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 	CopyOutState copyOutState = copyOutState1;
 	// 	for (int i = 0; i < PQntuples(res2); i++)
 	// 	{
-	// 		Datum *columnValues = palloc0(nFields * sizeof(Datum));
-	// 		bool *columnNulls = palloc0(nFields * sizeof(bool));
-	// 		int *columeSizes = palloc0(nFields * sizeof(int));
-	// 		memset(columnValues, 0, nFields * sizeof(Datum));
-	// 		memset(columnNulls, 0, nFields * sizeof(bool));
-	// 		memset(columeSizes, 0, nFields * sizeof(int));
+	// 		Datum *columnValues = palloc0(columnCount * sizeof(Datum));
+	// 		bool *columnNulls = palloc0(columnCount * sizeof(bool));
+	// 		int *columeSizes = palloc0(columnCount * sizeof(int));
+	// 		memset(columnValues, 0, columnCount * sizeof(Datum));
+	// 		memset(columnNulls, 0, columnCount * sizeof(bool));
+	// 		memset(columeSizes, 0, columnCount * sizeof(int));
 
-	// 		for (int j = 0; j < nFields; j++){
+	// 		for (int j = 0; j < columnCount; j++){
 	// 			//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 	// 			if (PQgetisnull(res2, i, j))
 	// 			{
@@ -1239,7 +1238,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 		if (copyOutState->binary)
 	// 		{
 	// 			ereport(DEBUG3, (errmsg("CopySendInt16")));
-	// 			CopySendInt16(copyOutState, nFields);
+	// 			CopySendInt16(copyOutState, columnCount);
 	// 		}
 	// 		for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 	// 			//ereport(DEBUG3, (errmsg("44444------")));
