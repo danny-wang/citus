@@ -562,6 +562,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// return;
 
 	// 1. find all independent subplans
+	TimestampTz startTimestamp = GetCurrentTimestamp();
 	const int fileFlags = (O_APPEND | O_CREAT | O_RDWR | O_TRUNC | PG_BINARY);
 	const int fileMode = (S_IRUSR | S_IWUSR);
 	const char *delimiterCharacter = "\t";
@@ -576,18 +577,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		char *resultId = GenerateResultId(planId, subPlanId);
 		bool useIntermediateResult = false;
 		IntermediateResultsHashEntry *entry = SearchIntermediateResult(intermediateResultsHash, resultId);
-		ereport(DEBUG3, (errmsg("####### 1")));
+		//ereport(DEBUG3, (errmsg("####### 1")));
 		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
-			ereport(DEBUG3, (errmsg("####### 2")));
+			//ereport(DEBUG3, (errmsg("####### 2")));
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
 			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
-				ereport(DEBUG3, (errmsg("####### 3")));
+				//ereport(DEBUG3, (errmsg("####### 3")));
 				DistributedPlan *node1 = GetDistributedPlan(customScan);
  			 	Task *task = (Task *)linitial(node1->workerJob->taskList);
  			 	if (list_length(task->taskPlacementList) == 1 ) {
- 			 		ereport(DEBUG3, (errmsg("####### 4")));
+ 			 		//ereport(DEBUG3, (errmsg("####### 4")));
 					RangeTblEntry *rte = NULL;
 					foreach_ptr(rte, plannedStmt->rtable) {
 						if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
@@ -595,9 +596,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							break;
 						}
 					}
-					ereport(DEBUG3, (errmsg("####### 5")));
+					//ereport(DEBUG3, (errmsg("####### 5")));
 					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
-						ereport(DEBUG3, (errmsg("####### 6")));
+						//ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						plan->subPlan = subPlan;
 						plan->fileName = QueryResultFileName(resultId);
@@ -611,28 +612,35 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
 						parallelJobList = lappend(parallelJobList, plan);
 					} else {
-						ereport(DEBUG3, (errmsg("####### 7")));
+						//ereport(DEBUG3, (errmsg("####### 7")));
 						sequenceJobList = lappend(sequenceJobList, subPlan);
 					}
  			 	} else {
- 			 		ereport(DEBUG3, (errmsg("####### 8")));
+ 			 		//ereport(DEBUG3, (errmsg("####### 8")));
 					sequenceJobList = lappend(sequenceJobList, subPlan);
  			 	}
  			 	
 			} else {
-				ereport(DEBUG3, (errmsg("####### 9")));
+				//ereport(DEBUG3, (errmsg("####### 9")));
 				sequenceJobList = lappend(sequenceJobList, subPlan);
 			}
 			
 		} else {
-			ereport(DEBUG3, (errmsg("####### 10")));
+			//ereport(DEBUG3, (errmsg("####### 10")));
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
+	long durationSeconds = 0.0;
+	int durationMicrosecs = 0;
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG3, (errmsg("-------run find all independent subplans time cost:%d" ,durationMillisecs)));
 	ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
 	// 2. run these independent subplans parallel
 	//WaitEvent *events = NULL;
-	
+	startTimestamp = GetCurrentTimestamp();
 	SubPlanParallel* pSubPlan = NULL;
 	foreach_ptr(pSubPlan, parallelJobList) {
 		char conninfo[100];
@@ -660,6 +668,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							   NULL, NULL, NULL, 1);
 	}
 	ereport(DEBUG3, (errmsg("create connection and send query success")));
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG3, (errmsg("-------create connection and send query time cost:%d" ,durationMillisecs)));
+
 	CopyOutState copyOutState1 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
 	copyOutState1->delim = (char *) delimiterCharacter;
 	copyOutState1->null_print = (char *) nullPrintCharacter;
@@ -668,6 +682,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	copyOutState1->binary = true;
 	copyOutState1->fe_msgbuf = makeStringInfo();
 	copyOutState1->need_transcoding = false;
+	startTimestamp = GetCurrentTimestamp();
 	foreach_ptr(pSubPlan, parallelJobList) {
 		PGresult   *res1;
 		res1 = PQgetResult(pSubPlan->conn);
@@ -677,7 +692,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		for (int i = 0; i < nFields; i++) {
 			ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
 		}
-		FmgrInfo *fi = NULL;
+		//FmgrInfo *fi = NULL;
 		//CopyCoercionData *ccd = NULL;
 		Oid *typeArray = NULL;
 		int availableColumnCount = 0;
@@ -694,29 +709,29 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);
 		while (true)
 		{
-			ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
+			//ereport(DEBUG3, (errmsg("+++++++++nFields:%d, columnCount:%d",nFields,columnCount)));
 			ereport(DEBUG3, (errmsg("walk into while (true) 1")));
 			if (!res1)
 				break;
-			if (fi == NULL) {
-				typeArray = palloc0(nFields * sizeof(Oid));
-				int columnIndex = 0;
-				for (; columnIndex < columnCount; columnIndex++)
-				{
-					ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
-					typeArray[columnIndex] = PQftype(res1,columnIndex);
-					ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
-					if (typeArray[columnIndex] != InvalidOid) {
-						ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
-						availableColumnCount++;
-					}
-					ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
-				}
-				ereport(DEBUG3, (errmsg("11111")));
-				fi = TypeOutputFunctions(columnCount, typeArray, true);
-				ereport(DEBUG3, (errmsg("22222")));
-			}
-			ereport(DEBUG3, (errmsg("3333")));
+			// if (fi == NULL) {
+			// 	typeArray = palloc0(nFields * sizeof(Oid));
+			// 	int columnIndex = 0;
+			// 	for (; columnIndex < columnCount; columnIndex++)
+			// 	{
+			// 		ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
+			// 		typeArray[columnIndex] = PQftype(res1,columnIndex);
+			// 		ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
+			// 		if (typeArray[columnIndex] != InvalidOid) {
+			// 			ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
+			// 			availableColumnCount++;
+			// 		}
+			// 		ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
+			// 	}
+			// 	ereport(DEBUG3, (errmsg("11111")));
+			// 	fi = TypeOutputFunctions(columnCount, typeArray, true);
+			// 	ereport(DEBUG3, (errmsg("22222")));
+			// }
+			//ereport(DEBUG3, (errmsg("3333")));
 			// if (ccd == NULL) {
 			// 	ccd = palloc0(columnCount * sizeof(CopyCoercionData));
 			// 	for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
@@ -757,19 +772,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						columnValues[j] = (Datum)value;
 					}
 					columeSizes[j] = PQgetlength(res1,i,j);
-					//char *value = PQgetvalue(res1, i, j);
-					//columnValues[j] = (Datum)value;
-					//AppendCopyRowData
-					// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
-					// CopyOutState copyOutState = resultDest->copyOutState;
 				}
-				ereport(DEBUG3, (errmsg("44444")));
+				//ereport(DEBUG3, (errmsg("44444")));
 				uint32 appendedColumnCount = 0;
 				resetStringInfo(copyOutState->fe_msgbuf);
 				bool binary = true;
 				if (copyOutState->binary)
 				{
-					ereport(DEBUG3, (errmsg("CopySendInt16")));
+					//ereport(DEBUG3, (errmsg("CopySendInt16")));
 					CopySendInt16(copyOutState, nFields);
 				}
 				for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
@@ -794,7 +804,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						}
 					} else {
 						if (!isNull) {
-							FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+							//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
 							CopyAttributeOutText(copyOutState, (char *)value);
 						} else {
 							CopySendString(copyOutState, copyOutState->null_print_client);
@@ -828,9 +838,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		PQclear(res1);
 		/* close the connection to the database and cleanup */
 		PQfinish(pSubPlan->conn);
+		FileClose(pSubPlan->fileCompat.fd);
 		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	}
-
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG3, (errmsg("-------run parallel query time cost:%d" ,durationMillisecs)));
 	// 3. run dependent subplans sequentially
 
 	// List *newDistrubutedSubPlans = NULL;
@@ -1289,7 +1304,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 
 	/* ------------- danny test end ---------------  */
-
+	startTimestamp = GetCurrentTimestamp();
 	//DistributedSubPlan *subPlan = NULL;
 	//i =0 ;
 	foreach_ptr(subPlan, sequenceJobList)
@@ -1324,8 +1339,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// }
 		IntermediateResultsHashEntry *entry =
 			SearchIntermediateResult(intermediateResultsHash, resultId);
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d ", list_length(entry->nodeIdList),entry->writeLocalFile)));
-		elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
+		//ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$ entry node_id_length:%d,writeLocalFile:%d ", list_length(entry->nodeIdList),entry->writeLocalFile)));
+		//elog_node_display(LOG, "$$$$$$$$$$$$$$$$$$ entry node_id_list: parse tree", entry->nodeIdList, Debug_pretty_print);
 		SubPlanLevel++;
 		EState *estate = CreateExecutorState();
 		DestReceiver *copyDest =
@@ -1358,4 +1373,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		FreeExecutorState(estate);
 		//i++;
 	}
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG3, (errmsg("-------run sequentially query time cost:%d" ,durationMillisecs)));
 }
