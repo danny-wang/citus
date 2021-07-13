@@ -1599,7 +1599,7 @@ AppendCopyRowData(Datum *valueArray, bool *isNullArray, TupleDesc rowDescriptor,
 		}
 		else if (rowOutputState->binary)
 		{
-			ereport(DEBUG3, (errmsg("rowOutputState->binary == true")));
+			//ereport(DEBUG3, (errmsg("rowOutputState->binary == true")));
 			if (!isNull)
 			{
 				FmgrInfo *outputFunctionPointer = &columnOutputFunctions[columnIndex];
