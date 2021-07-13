@@ -567,10 +567,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	const int fileMode = (S_IRUSR | S_IWUSR);
 	const char *delimiterCharacter = "\t";
 	const char *nullPrintCharacter = "\\N";
-	List *sequenceJobList;
-	List *parallelJobList;
+	List *sequenceJobList = NIL;
+	List *parallelJobList = NIL;
 	DistributedSubPlan *subPlan = NULL;
 	foreach_ptr(subPlan, subPlanList) {
+		ereport(DEBUG3, (errmsg("####### 0")));
 		PlannedStmt *plannedStmt = subPlan->plan;
 		uint32 subPlanId = subPlan->subPlanId;
 		ParamListInfo params = NULL;
