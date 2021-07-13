@@ -691,7 +691,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	foreach_ptr(pSubPlan, parallelJobList) {
 		PGresult   *res1;
 		res1 = PQgetResult(pSubPlan->conn);
-		int columnCount = PQcolumnCount(res1);
+		int columnCount = PQnFields(res1);
 		int availableColumnCount = 0;
 		Oid *typeArray = palloc0(columnCount * sizeof(Oid));
 		// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
@@ -702,6 +702,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			}
 			ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
 		}
+		
 		//FmgrInfo *fi = NULL;
 		//CopyCoercionData *ccd = NULL;
 		CopyOutState copyOutState = copyOutState1;
@@ -990,7 +991,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// PGresult   *res1;
 	// PGresult   *res2;
 	// res1 = PQgetResult(conn1);
-	// int columnCount = PQcolumnCount(res1);
+	// int columnCount = PQnFields(res1);
 	// int columnCount = columnCount;
 	// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
 	// for (int i = 0; i < columnCount; i++) {
@@ -1163,7 +1164,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	// //sleep(60);	
 	// res2 = PQgetResult(conn2);
-	// columnCount = PQcolumnCount(res2);
+	// columnCount = PQnFields(res2);
 	// for (int i = 0; i < columnCount; i++) {
 	// 	ereport(DEBUG3, (errmsg("%-15s",PQfname(res2, i))));
 	// }
