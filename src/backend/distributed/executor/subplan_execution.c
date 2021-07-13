@@ -577,18 +577,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		char *resultId = GenerateResultId(planId, subPlanId);
 		bool useIntermediateResult = false;
 		IntermediateResultsHashEntry *entry = SearchIntermediateResult(intermediateResultsHash, resultId);
-		//ereport(DEBUG3, (errmsg("####### 1")));
+		ereport(DEBUG3, (errmsg("####### 1")));
 		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
-			//ereport(DEBUG3, (errmsg("####### 2")));
+			ereport(DEBUG3, (errmsg("####### 2")));
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
 			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
-				//ereport(DEBUG3, (errmsg("####### 3")));
+				ereport(DEBUG3, (errmsg("####### 3")));
 				DistributedPlan *node1 = GetDistributedPlan(customScan);
  			 	Task *task = (Task *)linitial(node1->workerJob->taskList);
  			 	if (list_length(task->taskPlacementList) == 1 ) {
- 			 		//ereport(DEBUG3, (errmsg("####### 4")));
+ 			 		ereport(DEBUG3, (errmsg("####### 4")));
 					RangeTblEntry *rte = NULL;
 					foreach_ptr(rte, plannedStmt->rtable) {
 						if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
@@ -596,9 +596,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							break;
 						}
 					}
-					//ereport(DEBUG3, (errmsg("####### 5")));
+					ereport(DEBUG3, (errmsg("####### 5")));
 					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
-						//ereport(DEBUG3, (errmsg("####### 6")));
+						ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						plan->subPlan = subPlan;
 						plan->fileName = QueryResultFileName(resultId);
@@ -612,21 +612,21 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
 						parallelJobList = lappend(parallelJobList, plan);
 					} else {
-						//ereport(DEBUG3, (errmsg("####### 7")));
+						ereport(DEBUG3, (errmsg("####### 7")));
 						sequenceJobList = lappend(sequenceJobList, subPlan);
 					}
  			 	} else {
- 			 		//ereport(DEBUG3, (errmsg("####### 8")));
+ 			 		ereport(DEBUG3, (errmsg("####### 8")));
 					sequenceJobList = lappend(sequenceJobList, subPlan);
  			 	}
  			 	
 			} else {
-				//ereport(DEBUG3, (errmsg("####### 9")));
+				ereport(DEBUG3, (errmsg("####### 9")));
 				sequenceJobList = lappend(sequenceJobList, subPlan);
 			}
 			
 		} else {
-			//ereport(DEBUG3, (errmsg("####### 10")));
+			ereport(DEBUG3, (errmsg("####### 10")));
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
