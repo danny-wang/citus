@@ -571,25 +571,25 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	List *parallelJobList = NIL;
 	DistributedSubPlan *subPlan = NULL;
 	foreach_ptr(subPlan, subPlanList) {
-		ereport(DEBUG3, (errmsg("####### 0")));
+		//ereport(DEBUG3, (errmsg("####### 0")));
 		PlannedStmt *plannedStmt = subPlan->plan;
 		uint32 subPlanId = subPlan->subPlanId;
 		ParamListInfo params = NULL;
 		char *resultId = GenerateResultId(planId, subPlanId);
 		bool useIntermediateResult = false;
 		IntermediateResultsHashEntry *entry = SearchIntermediateResult(intermediateResultsHash, resultId);
-		ereport(DEBUG3, (errmsg("####### 1")));
+		//ereport(DEBUG3, (errmsg("####### 1")));
 		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
 			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
 			&& entry->writeLocalFile == true){
-			ereport(DEBUG3, (errmsg("####### 2")));
+			//ereport(DEBUG3, (errmsg("####### 2")));
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
 			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
-				ereport(DEBUG3, (errmsg("####### 3")));
+				//ereport(DEBUG3, (errmsg("####### 3")));
 				DistributedPlan *node1 = GetDistributedPlan(customScan);
  			 	Task *task = (Task *)linitial(node1->workerJob->taskList);
  			 	if (list_length(task->taskPlacementList) == 1 ) {
- 			 		ereport(DEBUG3, (errmsg("####### 4")));
+ 			 		//ereport(DEBUG3, (errmsg("####### 4")));
 					RangeTblEntry *rte = NULL;
 					foreach_ptr(rte, plannedStmt->rtable) {
 						if (rte->eref != NULL && strcmp(rte->eref->aliasname, "intermediate_result") == 0 && rte->rtekind == RTE_FUNCTION) {
@@ -597,9 +597,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							break;
 						}
 					}
-					ereport(DEBUG3, (errmsg("####### 5")));
+					//ereport(DEBUG3, (errmsg("####### 5")));
 					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
-						ereport(DEBUG3, (errmsg("####### 6")));
+						//ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						plan->subPlan = subPlan;
 						plan->fileName = QueryResultFileName(resultId);
@@ -607,31 +607,31 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
 																				 fileFlags,
 																				 fileMode));
-						ereport(DEBUG3, (errmsg("####### 6.1")));
+						//ereport(DEBUG3, (errmsg("####### 6.1")));
 						ShardPlacement* en = (ShardPlacement*) linitial(task->taskPlacementList);
-						elog_node_display(LOG, "ShardPlacement parse tree", en, Debug_pretty_print);
+						//elog_node_display(LOG, "ShardPlacement parse tree", en, Debug_pretty_print);
 						plan->nodeName = en->nodeName;
 						plan->nodePort = en->nodePort; 
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
-						ereport(DEBUG3, (errmsg("####### 6.2")));
+						//ereport(DEBUG3, (errmsg("####### 6.2")));
 						parallelJobList = lappend(parallelJobList, plan);
-						ereport(DEBUG3, (errmsg("####### 6.3")));
+						//ereport(DEBUG3, (errmsg("####### 6.3")));
 					} else {
-						ereport(DEBUG3, (errmsg("####### 7")));
+						//ereport(DEBUG3, (errmsg("####### 7")));
 						sequenceJobList = lappend(sequenceJobList, subPlan);
 					}
  			 	} else {
- 			 		ereport(DEBUG3, (errmsg("####### 8")));
+ 			 		//ereport(DEBUG3, (errmsg("####### 8")));
 					sequenceJobList = lappend(sequenceJobList, subPlan);
  			 	}
  			 	
 			} else {
-				ereport(DEBUG3, (errmsg("####### 9")));
+				//ereport(DEBUG3, (errmsg("####### 9")));
 				sequenceJobList = lappend(sequenceJobList, subPlan);
 			}
 			
 		} else {
-			ereport(DEBUG3, (errmsg("####### 10")));
+			//ereport(DEBUG3, (errmsg("####### 10")));
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
@@ -693,10 +693,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		res1 = PQgetResult(pSubPlan->conn);
 		int nFields = PQnfields(res1);
 		int columnCount = nFields;
-		ereport(DEBUG3, (errmsg("nFields:%d, columnCount:%d",nFields,columnCount)));
-		for (int i = 0; i < nFields; i++) {
-			ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
-		}
+		// ereport(DEBUG3, (errmsg("nFields:%d, columnCount:%d",nFields,columnCount)));
+		// for (int i = 0; i < nFields; i++) {
+		// 	ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
+		// }
 		//FmgrInfo *fi = NULL;
 		//CopyCoercionData *ccd = NULL;
 		Oid *typeArray = NULL;
@@ -839,11 +839,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			}
 			res1 = PQgetResult(pSubPlan->conn);
 		}
-		/*res = PQexec(conn, "END");*/
 		PQclear(res1);
 		/* close the connection to the database and cleanup */
 		PQfinish(pSubPlan->conn);
-		FileClose(pSubPlan->fc.fd);
+		//FileClose(pSubPlan->fc.fd);
 		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	}
 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
