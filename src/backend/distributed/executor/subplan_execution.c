@@ -1247,6 +1247,7 @@ BuildWaitEventSetV2(List *sessionList)
 		int sock = PQsocket(session->conn);
 		if (sock == -1)
 		{
+			ereport(DEBUG3, (errmsg("@@@@@@  sock == -1   @@@@@@@@@")));
 			/* connection was closed */
 			continue;
 		}
