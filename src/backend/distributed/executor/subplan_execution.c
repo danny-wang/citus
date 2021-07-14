@@ -912,11 +912,15 @@ ReceiveResultsV2(SubPlanParallel* session) {
 static void
 TransactionStateMachineV2(SubPlanParallel* session)
 {
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ########")));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
 	// TransactionBlocksUsage useRemoteTransactionBlocks =
 	// 	execution->transactionProperties->useRemoteTransactionBlocks;
 	RemoteTransaction *transaction = &(session->remoteTransaction);
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.3  ########")));
 	RemoteTransactionState currentState;
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
 	do {
 		currentState = transaction->transactionState;
 		if (!CheckConnectionReadyV2(session))
@@ -966,8 +970,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 static void
 ConnectionStateMachineV2(SubPlanParallel* subPlan)
 {
+	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.1  ########")));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)subPlan->subPlanParallelExecution;
+	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.2########")));
 	MultiConnectionState currentState;
+	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.3########")));
 	do {
 		currentState = subPlan->connectionState;
 		switch (currentState)
