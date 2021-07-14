@@ -98,9 +98,6 @@ void citus_geobuf_agg_context_add_data(citus_geobuf_agg_context *ctx, uint8_t *d
     if (cur_data == NULL) {
         ereport(DEBUG3, (errmsg("citus_geobuf_agg_context_add_data, decode data faile, cur_data is NULL")));
     }else {
-        if(ctx->data == NULL) {
-            ereport(DEBUG3, (errmsg("ctx data is NULL 2.3")));
-        }
         citus_geobuf_agg_context_merge_geobuf(ctx, cur_data);
         geobuf__data__free_unpacked(cur_data, &allocator);
         cur_data = NULL;
@@ -145,7 +142,7 @@ void citus_geobuf_agg_context_merge_geobuf(citus_geobuf_agg_context *ctx, Geobuf
     for(int i = 0; i < cur_key_len; ++i) {
         int index = -1;
         for(int j = 0; j < pre_key_len; ++j) {
-            if(strcmp(data->keys[i], ctx->data->keys[j])) {
+            if(strcmp(data->keys[i], ctx->data->keys[j]) == 0) {
                 index = j;
                 break;
             }
@@ -190,6 +187,7 @@ void citus_geobuf_agg_context_merge_geobuf(citus_geobuf_agg_context *ctx, Geobuf
         // add the new_feature
         ctx->data->feature_collection->features[ctx->data->feature_collection->n_features++] = new_feature;
     }
+    pfree(cur_key_index_map);
 }
 
 
@@ -222,6 +220,8 @@ Datum
 citus_st_asgeobuf_agg_transfn(PG_FUNCTION_ARGS) {
     ereport(DEBUG3, (errmsg("citus_st_asgeobuf_agg_transfn start")));
 
+    // here, we must switch memory context to aggregate context,
+    // otherwize, the palloc() memory will only worked in this call time.
     MemoryContext agg_context;
     if (!AggCheckCallContext(fcinfo, &agg_context)) {
         elog(ERROR, "citus_st_asgeobuf_agg_transfn called in non-aggregate context");
