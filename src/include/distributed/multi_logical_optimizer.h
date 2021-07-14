@@ -26,7 +26,7 @@
 #define ARRAY_CAT_AGGREGATE_NAME "array_cat_agg"
 #define JSONB_CAT_AGGREGATE_NAME "jsonb_cat_agg"
 #define JSON_CAT_AGGREGATE_NAME "json_cat_agg"
-#define ST_ASGEOBUF_AGG "st_asgeobuf_agg"
+#define ST_ASGEOBUF_AGG_NAME "st_asgeobuf_agg"
 #define WORKER_PARTIAL_AGGREGATE_NAME "worker_partial_agg"
 #define COORD_COMBINE_AGGREGATE_NAME "coord_combine_agg"
 #define WORKER_COLUMN_FORMAT "worker_column_%d"
@@ -79,8 +79,8 @@ typedef enum
 	AGGREGATE_HLL_UNION = 17,
 	AGGREGATE_TOPN_ADD_AGG = 18,
 	AGGREGATE_TOPN_UNION_AGG = 19,
-	AGGREGATE_ANY_VALUE = 20,
-	AGGREGATE_ST_ASGEOBUF_AGG = 21,
+	AGGREGATE_ST_ASGEOBUF_AGG = 20,
+	AGGREGATE_ANY_VALUE = 21,
 
 	/* support for github.com/tvondra/tdigest */
 	AGGREGATE_TDIGEST_COMBINE = 22,

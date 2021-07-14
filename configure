@@ -4506,7 +4506,7 @@ fi
 # REPORTS_BASE_URL definition
 
 # add protobuf-c
-LIBS="-lprotobuf-c $LIBS"
+LIBS="-lprotobuf-c -lm $LIBS"
 
 
 # Check whether --with-reports-hostname was given.

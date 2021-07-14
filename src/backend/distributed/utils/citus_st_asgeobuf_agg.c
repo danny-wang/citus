@@ -58,7 +58,11 @@ void geobuf__data__geometry__change_precision(Geobuf__Data__Geometry *geometry, 
 }
 
 
-void citus_geobuf_agg_context_add_data(struct citus_geobuf_agg_context *ctx, uint8_t *data_ptr, size_t data_len) {
+void citus_geobuf_agg_context_add_data(citus_geobuf_agg_context *ctx, uint8_t *data_ptr, size_t data_len) {
+    if(data_len == 0) {
+        return;
+    }
+
     ctx->agg_array_size++;
     
     // if this is the first geobuf data, we just copy the bytes data to buf, 
@@ -78,21 +82,32 @@ void citus_geobuf_agg_context_add_data(struct citus_geobuf_agg_context *ctx, uin
 		geobuf_deallocator,
 		NULL
 	};
-    // if this is the second one, we add the first geobuf data which stored in the buf.
+
     if (ctx->agg_array_size == 2) {
         Geobuf__Data *pre_data = geobuf__data__unpack(&allocator, ctx->buf_len, ctx->buf);
-        citus_geobuf_agg_context_merge_geobuf(ctx, pre_data);
-        geobuf__data__free_unpacked(pre_data, &allocator);
-        pre_data = NULL;
+        if (pre_data == NULL) {
+            ereport(DEBUG3, (errmsg("citus_geobuf_agg_context_add_data, decode data faile, pre_data is NULL")));
+        }else {
+            citus_geobuf_agg_context_merge_geobuf(ctx, pre_data);
+            geobuf__data__free_unpacked(pre_data, &allocator);
+            pre_data = NULL;
+        }
     }
 
     Geobuf__Data *cur_data = geobuf__data__unpack(&allocator, data_len, data_ptr);
-    citus_geobuf_agg_context_merge_geobuf(ctx, cur_data);
-    geobuf__data__free_unpacked(cur_data, &allocator);
-    cur_data = NULL;
+    if (cur_data == NULL) {
+        ereport(DEBUG3, (errmsg("citus_geobuf_agg_context_add_data, decode data faile, cur_data is NULL")));
+    }else {
+        if(ctx->data == NULL) {
+            ereport(DEBUG3, (errmsg("ctx data is NULL 2.3")));
+        }
+        citus_geobuf_agg_context_merge_geobuf(ctx, cur_data);
+        geobuf__data__free_unpacked(cur_data, &allocator);
+        cur_data = NULL;
+    }
 }
 
-void citus_geobuf_agg_context_merge_geobuf(struct citus_geobuf_agg_context *ctx, Geobuf__Data *data) {
+void citus_geobuf_agg_context_merge_geobuf(citus_geobuf_agg_context *ctx, Geobuf__Data *data) {
     ProtobufCAllocator allocator = {
 		geobuf_allocator,
 		geobuf_deallocator,
@@ -122,7 +137,6 @@ void citus_geobuf_agg_context_merge_geobuf(struct citus_geobuf_agg_context *ctx,
         }else {
             keys = (char**) repalloc(ctx->data->keys, sizeof(char*) * (pre_key_len + cur_key_len));
         }
-
         ctx->data->keys = keys;
         ctx->keys_real_size = pre_key_len + cur_key_len;
     }
@@ -206,6 +220,14 @@ void citus_geobuf_agg_context_clean(citus_geobuf_agg_context *ctx) {
 
 Datum
 citus_st_asgeobuf_agg_transfn(PG_FUNCTION_ARGS) {
+    ereport(DEBUG3, (errmsg("citus_st_asgeobuf_agg_transfn start")));
+
+    MemoryContext agg_context;
+    if (!AggCheckCallContext(fcinfo, &agg_context)) {
+        elog(ERROR, "citus_st_asgeobuf_agg_transfn called in non-aggregate context");
+    }
+    MemoryContextSwitchTo(agg_context);
+
     citus_geobuf_agg_context *ctx;
 
     if (PG_ARGISNULL(0)) {
@@ -217,7 +239,7 @@ citus_st_asgeobuf_agg_transfn(PG_FUNCTION_ARGS) {
 
     if (!PG_ARGISNULL(1)) {
         bytea *bytea_geobuf = PG_GETARG_BYTEA_P(1);
-        uint8_t *geobuf = (uint8_t*)VARDATA(bytea_geobuf);
+        uint8_t *geobuf = (uint8_t*)VARDATA_ANY(bytea_geobuf);
         size_t geobuf_len = VARSIZE_ANY_EXHDR(bytea_geobuf);
         citus_geobuf_agg_context_add_data(ctx, geobuf, geobuf_len);
     }
@@ -227,6 +249,7 @@ citus_st_asgeobuf_agg_transfn(PG_FUNCTION_ARGS) {
 
 Datum
 citus_st_asgeobuf_agg_finalfn(PG_FUNCTION_ARGS) {
+    ereport(DEBUG3, (errmsg("citus_st_asgeobuf_agg_finalfn")));
     if (PG_ARGISNULL(0)) {
         PG_RETURN_NULL();
     }
