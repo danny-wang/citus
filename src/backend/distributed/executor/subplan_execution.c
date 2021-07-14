@@ -1238,11 +1238,11 @@ BuildWaitEventSetV2(List *sessionList)
 			continue;
 		}
 
-		if (session->waitFlags == 0)
-		{
-			/* not currently waiting for this connection */
-			continue;
-		}
+		// if (session->waitFlags == 0)
+		// {
+		// 	 not currently waiting for this connection 
+		// 	continue;
+		// }
 
 		int sock = PQsocket(session->conn);
 		if (sock == -1)
