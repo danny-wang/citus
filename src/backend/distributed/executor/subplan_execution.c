@@ -349,6 +349,7 @@ typedef struct SubPlanParallel {
 	void* subPlanParallelExecution;
 	bool writeBinarySignature;
 	int queryIndex;
+	int commandsSent;
 	uint64 rowsProcessed;
 	char *columnValues; 
 	bool *columnNulls; 
@@ -444,7 +445,7 @@ typedef struct SubPlanParallelExecution
 
 	/* number of failed connections */
 	int failedConnectionCount;
-	CopyOutState *copyOutState;
+	CopyOutState copyOutState;
 
 }SubPlanParallelExecution;
 
@@ -621,7 +622,7 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	int sendStatus = PQflush(session->conn);
 	if (sendStatus == -1)
 	{
-		connection->connectionState = MULTI_CONNECTION_LOST;
+		session->connectionState = MULTI_CONNECTION_LOST;
 		return false;
 	}
 	else if (sendStatus == 1)
@@ -677,7 +678,7 @@ SendRemoteCommandV2(SubPlanParallel* session)
 
 	Assert(PQisnonblocking(pgConn));
 
-	int rc = PQsendQuery(pgConn, pSubPlan->queryStringLazy);
+	int rc = PQsendQuery(pgConn, session->queryStringLazy);
 
 	return rc;
 }
@@ -708,7 +709,7 @@ SendRemoteCommandParamsV2(SubPlanParallel* session, int parameterCount, const Oi
 
 	Assert(PQisnonblocking(pgConn));
 
-	int rc = PQsendQueryParams(pgConn, pSubPlan->queryStringLazy, parameterCount, parameterTypes,
+	int rc = PQsendQueryParams(pgConn, session->queryStringLazy, parameterCount, parameterTypes,
 							   parameterValues, NULL, NULL, binaryResults ? 1 : 0);
 
 	return rc;
@@ -757,7 +758,7 @@ StartSubPlanExecution(SubPlanParallel* session) {
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
-	CopyOutState *copyOutState = execution->copyOutState;
+	CopyOutState copyOutState = execution->copyOutState;
 	bool fetchDone = false;
 	while (!PQisBusy(session->conn))
 	{
@@ -799,8 +800,8 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			
 			// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
 			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++) {
-				typeArray[columnIndex] = PQftype(result,columnIndex);
-				if (typeArray[columnIndex] != InvalidOid) {
+				session->typeArray[columnIndex] = PQftype(result,columnIndex);
+				if (session->typeArray[columnIndex] != InvalidOid) {
 					availableColumnCount++;
 				}
 				//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(result, columnIndex),PQftype(result,columnIndex))));
@@ -820,15 +821,15 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		}
 		for (int i = 0; i < rowsProcessed; i++)
 		{
-			memset(columnValues, 0, columnCount * sizeof(char));
-			memset(columnNulls, 0, columnCount * sizeof(bool));
-			memset(columeSizes, 0, columnCount * sizeof(int));
+			memset(session->columnValues, 0, columnCount * sizeof(char));
+			memset(session->columnNulls, 0, columnCount * sizeof(bool));
+			memset(session->columeSizes, 0, columnCount * sizeof(int));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(result, i, j))
 				{
-					columnValues[j] = NULL;
-					columnNulls[j] = true;
+					session->columnValues[j] = NULL;
+					session->columnNulls[j] = true;
 				}else {
 					char *value = PQgetvalue(result, i, j);
 
@@ -837,9 +838,9 @@ ReceiveResultsV2(SubPlanParallel* session) {
 							ereport(ERROR, (errmsg("unexpected text result")));
 						}
 					}
-					columnValues[j] = value;
+					session->columnValues[j] = value;
 				}
-				columeSizes[j] = PQgetlength(result,i,j);
+				session->columeSizes[j] = PQgetlength(result,i,j);
 			}
 			//ereport(DEBUG3, (errmsg("44444")));
 			uint32 appendedColumnCount = 0;
@@ -852,11 +853,11 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			}
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
-				char *value = columnValues[columnIndex];
-				int size = columeSizes[columnIndex];
+				char *value = session->columnValues[columnIndex];
+				int size = session->columeSizes[columnIndex];
 				//ereport(DEBUG3, (errmsg("44444@@@@@")));
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
-				bool isNull = columnNulls[columnIndex];
+				bool isNull = session->columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (typeArray[columnIndex] == InvalidOid) {
 					continue;
@@ -1676,6 +1677,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->subPlan = subPlan;
 						plan->queryIndex = 0;
 						plan->rowsProcessed = 0;
+						plan->commandsSent = 0;
 						plan->fileName = QueryResultFileName(resultId);
 						CreateIntermediateResultsDirectory();
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
