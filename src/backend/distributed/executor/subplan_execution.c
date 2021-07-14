@@ -1250,7 +1250,7 @@ BuildWaitEventSetV2(List *sessionList)
 			/* connection was closed */
 			continue;
 		}
-
+		ereport(DEBUG3, (errmsg("@@@@@@  AddWaitEventToSet   @@@@@@@@@")));
 		int waitEventSetIndex = AddWaitEventToSet(waitEventSet, session->waitFlags,
 												  sock, NULL, (void *) session);
 		session->waitEventSetIndex = waitEventSetIndex;
