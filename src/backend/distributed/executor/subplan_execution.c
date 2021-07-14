@@ -826,7 +826,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			}
 			session->writeBinarySignature = true;
 		}
-		report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.8  ########")));
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.8  ########")));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
 			memset(session->columnValues, 0, columnCount * sizeof(char));
@@ -859,7 +859,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				//ereport(DEBUG3, (errmsg("CopySendInt16")));
 				CopySendInt16(copyOutState, columnCount);
 			}
-			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				char *value = session->columnValues[columnIndex];
@@ -908,14 +908,14 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			//ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
 			session->rowsProcessed++;
-			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10  ########")));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10  ########")));
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		PQclear(result);
-		report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
 	}
-	report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
+	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
 	return fetchDone;
 }
 /*
