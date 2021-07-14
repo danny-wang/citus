@@ -1363,7 +1363,7 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
 		session->latestUnconsumedWaitEvents = event->events;
-		ereport(ERROR, (errmsg("#########   ProcessWaitEventsV2  ########")));
+		ereport(DEBUG3, (errmsg("#########   ProcessWaitEventsV2  ########")));
 		ConnectionStateMachineV2(session);
 	}
 }
@@ -1387,10 +1387,10 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		int eventSetSize = GetEventSetSizeV2(execution->parallelTaskList);
 		/* always (re)build the wait event set the first time */
 		execution->rebuildWaitEventSet = true;
-		ereport(ERROR, (errmsg("#########   SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+		ereport(DEBUG3, (errmsg("#########   SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
 		while (execution->unfinishedTaskCount > 0 && !cancellationReceived)
 		{
-			ereport(ERROR, (errmsg("#########  in while loop SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+			ereport(DEBUG3, (errmsg("#########  in while loop SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
 			if (execution->rebuildWaitEventSet)
 			{
 				if (events != NULL)
