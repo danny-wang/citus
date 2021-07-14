@@ -725,7 +725,7 @@ SendQuery(SubPlanParallel* session) {
 	if (!(session->useBinaryCopyFormat)) {
 		querySent = SendRemoteCommandV2(session);
 	} else {
-		querySent = SendRemoteCommandParams(session, 0, NULL, NULL,
+		querySent = SendRemoteCommandParamsV2(session, 0, NULL, NULL,
 												session->useBinaryCopyFormat);
 	}
 	if (querySent == 0)
@@ -859,7 +859,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = session->columnNulls[columnIndex];
 				bool lastColumn = false;
-				if (typeArray[columnIndex] == InvalidOid) {
+				if (session->typeArray[columnIndex] == InvalidOid) {
 					continue;
 				} else if (session->useBinaryCopyFormat) {
 					if (!isNull) {
@@ -878,7 +878,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					} else {
 						CopySendString(copyOutState, copyOutState->null_print_client);
 					}
-					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
+					lastColumn = ((appendedColumnCount + 1) == session->availableColumnCount);
 					if (!lastColumn){
 						CopySendChar(copyOutState, copyOutState->delim[0]);
 					}
@@ -1082,7 +1082,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 			case MULTI_CONNECTION_CONNECTED:
 			{
 				/* connection is ready, run the transaction state machine */
-				TransactionStateMachineV2(session); 
+				TransactionStateMachineV2(subPlan); 
 				break;
 			}
 			case MULTI_CONNECTION_LOST:
