@@ -922,7 +922,7 @@ RebuildWaitEventSetFlagsV2(WaitEventSet *waitEventSet, List *sessionList)
 			continue;
 		}
 
-		ModifyWaitEvent(waitEventSet, waitEventSetIndex, connection->waitFlags, NULL);
+		ModifyWaitEvent(waitEventSet, waitEventSetIndex, session->waitFlags, NULL);
 	}
 }
 
@@ -1018,7 +1018,7 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			long timeout = 2000;
 			int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
 											  eventSetSize, WAIT_EVENT_CLIENT_READ);
-			ProcessWaitEvents(execution, events, eventCount, &cancellationReceived);
+			ProcessWaitEventsV2(execution, events, eventCount, &cancellationReceived);
 		}
 		if (events != NULL)
 		{
@@ -1306,8 +1306,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		session->subPlanParallelExecution = (void*)execution;
 	}
 	RunSubPlanParallelExecution(execution);
-	// long durationSeconds = 0.0;
-	// int durationMicrosecs = 0;
+	
+
+
+	long durationSeconds = 0.0;
+	int durationMicrosecs = 0;
 	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
 	// 						&durationMicrosecs);
 	// long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
