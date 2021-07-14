@@ -608,6 +608,7 @@ UpdateConnectionWaitFlagsV2(SubPlanParallel* session, int waitFlags)
 static bool
 CheckConnectionReadyV2(SubPlanParallel* session)
 {
+	ereport(DEBUG3, (errmsg("1.1")));
 	int waitFlags = WL_SOCKET_READABLE;
 	bool connectionReady = false;
 
@@ -630,7 +631,7 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 		/* more data to send, wait for socket to become writable */
 		waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
 	}
-
+	ereport(DEBUG3, (errmsg("1.2")));
 	if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
 	{
 		if (PQconsumeInput(session->conn) == 0)
@@ -644,9 +645,9 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	{
 		connectionReady = true;
 	}
-
+	ereport(DEBUG3, (errmsg("1.3")));
 	UpdateConnectionWaitFlagsV2(session, waitFlags);
-
+	ereport(DEBUG3, (errmsg("1.4")));
 	/* don't consume input redundantly if we cycle back into CheckConnectionReady */
 	session->latestUnconsumedWaitEvents = 0;
 
@@ -922,7 +923,9 @@ TransactionStateMachineV2(SubPlanParallel* session)
 	RemoteTransactionState currentState;
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
 	do {
+		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
 		currentState = transaction->transactionState;
+		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2  ########")));
 		if (!CheckConnectionReadyV2(session))
 		{
 			/* connection is busy, no state transitions to make */
@@ -952,6 +955,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				UpdateConnectionWaitFlagsV2(session,
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
 				execution->unfinishedTaskCount--;
+				break;
 			}
 			case REMOTE_TRANS_SENT_COMMAND:{
 				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.8  ########")));
