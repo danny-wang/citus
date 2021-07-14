@@ -61,6 +61,8 @@ int SubPlanLevel = 0;
 
 /* ------------- danny test begin ---------------  */
 static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
+const char *delimiterCharacter = "\t";
+const char *nullPrintCharacter = "\\N";
 const int32 zero = 0;
 long getTimeUsec()
 {
@@ -326,6 +328,7 @@ typedef struct SubPlanParallel {
 	char *user;
 	char *database;
 	char *queryStringLazy;
+	bool useBinaryCopyFormat;
 	PGconn *conn;
 	/* state of the connection */
 	MultiConnectionState connectionState;
@@ -344,6 +347,14 @@ typedef struct SubPlanParallel {
 	/* information about the associated remote transaction */
 	RemoteTransaction remoteTransaction;
 	void* subPlanParallelExecution;
+	bool writeBinarySignature;
+	int queryIndex;
+	uint64 rowsProcessed;
+	char *columnValues; 
+	bool *columnNulls; 
+	int *columeSizes; 
+	Oid *typeArray;
+	int availableColumnCount;
 } SubPlanParallel;
 
 
@@ -433,6 +444,7 @@ typedef struct SubPlanParallelExecution
 
 	/* number of failed connections */
 	int failedConnectionCount;
+	CopyOutState *copyOutState;
 
 }SubPlanParallelExecution;
 
@@ -462,6 +474,14 @@ CreateSubPlanParallelExecution(List *taskList, List *jobIdList)
 	execution->idleConnectionCount = 0;
 	execution->unusedConnectionCount = 0;
 	execution->failedConnectionCount = 0;
+	CopyOutState copyOutState1 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
+	copyOutState1->delim = (char *) delimiterCharacter;
+	copyOutState1->null_print = (char *) nullPrintCharacter;
+	copyOutState1->null_print_client = (char *) nullPrintCharacter;
+	copyOutState1->binary = true;  // not use, whether binary depends on taskList entry
+	copyOutState1->fe_msgbuf = makeStringInfo();
+	copyOutState1->need_transcoding = false;
+	execution->copyOutState = copyOutState1;
 	return execution;
 }
 
@@ -556,17 +576,389 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 }
 
 /*
+ * UpdateConnectionWaitFlags is a wrapper around setting waitFlags of the connection.
+ *
+ * This function might further improved in a sense that to use use ModifyWaitEvent on
+ * waitFlag changes as opposed to what we do now: always rebuild the wait event sets.
+ * Our initial benchmarks didn't show any significant performance improvements, but
+ * good to keep in mind the potential improvements.
+ */
+static void
+UpdateConnectionWaitFlagsV2(SubPlanParallel* session, int waitFlags)
+{
+	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
+
+	/* do not take any actions if the flags not changed */
+	if (session->waitFlags == waitFlags)
+	{
+		return;
+	}
+
+	session->waitFlags = waitFlags;
+
+	/* without signalling the execution, the flag changes won't be reflected */
+	execution->waitFlagsChanged = true;
+}
+
+/*
+ * CheckConnectionReady returns true if the connection is ready to
+ * read or write, or false if it still has bytes to send/receive.
+ */
+static bool
+CheckConnectionReadyV2(SubPlanParallel* session)
+{
+	int waitFlags = WL_SOCKET_READABLE;
+	bool connectionReady = false;
+
+	ConnStatusType status = PQstatus(session->conn);
+	if (status == CONNECTION_BAD)
+	{
+		session->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
+
+	/* try to send all pending data */
+	int sendStatus = PQflush(session->conn);
+	if (sendStatus == -1)
+	{
+		connection->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
+	else if (sendStatus == 1)
+	{
+		/* more data to send, wait for socket to become writable */
+		waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
+	}
+
+	if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
+	{
+		if (PQconsumeInput(session->conn) == 0)
+		{
+			session->connectionState = MULTI_CONNECTION_LOST;
+			return false;
+		}
+	}
+
+	if (!PQisBusy(session->conn))
+	{
+		connectionReady = true;
+	}
+
+	UpdateConnectionWaitFlagsV2(session, waitFlags);
+
+	/* don't consume input redundantly if we cycle back into CheckConnectionReady */
+	session->latestUnconsumedWaitEvents = 0;
+
+	return connectionReady;
+}
+
+/*
+ * SendRemoteCommand is a PQsendQuery wrapper that logs remote commands, and
+ * accepts a MultiConnection instead of a plain PGconn. It makes sure it can
+ * send commands asynchronously without blocking (at the potential expense of
+ * an additional memory allocation). The command string can include multiple
+ * commands since PQsendQuery() supports that.
+ */
+int
+SendRemoteCommandV2(SubPlanParallel* session)
+{
+	PGconn *pgConn = session->conn;
+
+	//LogRemoteCommand(connection, pSubPlan->queryStringLazy);
+
+	/*
+	 * Don't try to send command if connection is entirely gone
+	 * (PQisnonblocking() would crash).
+	 */
+	if (!pgConn || PQstatus(pgConn) != CONNECTION_OK)
+	{
+		return 0;
+	}
+
+	Assert(PQisnonblocking(pgConn));
+
+	int rc = PQsendQuery(pgConn, pSubPlan->queryStringLazy);
+
+	return rc;
+}
+
+/*
+ * SendRemoteCommandParams is a PQsendQueryParams wrapper that logs remote commands,
+ * and accepts a MultiConnection instead of a plain PGconn. It makes sure it can
+ * send commands asynchronously without blocking (at the potential expense of
+ * an additional memory allocation). The command string can only include a single
+ * command since PQsendQueryParams() supports only that.
+ */
+int
+SendRemoteCommandParamsV2(SubPlanParallel* session, int parameterCount, const Oid *parameterTypes,
+						const char *const *parameterValues, bool binaryResults)
+{
+	PGconn *pgConn = session->conn;
+
+	//LogRemoteCommand(connection, command);
+
+	/*
+	 * Don't try to send command if connection is entirely gone
+	 * (PQisnonblocking() would crash).
+	 */
+	if (!pgConn || PQstatus(pgConn) != CONNECTION_OK)
+	{
+		return 0;
+	}
+
+	Assert(PQisnonblocking(pgConn));
+
+	int rc = PQsendQueryParams(pgConn, pSubPlan->queryStringLazy, parameterCount, parameterTypes,
+							   parameterValues, NULL, NULL, binaryResults ? 1 : 0);
+
+	return rc;
+}
+
+/*
+ * SendNextQuery sends the next query for placementExecution on the given
+ * session.
+ */
+static bool
+SendQuery(SubPlanParallel* session) {
+	int querySent = 0;
+	if (!(session->useBinaryCopyFormat)) {
+		querySent = SendRemoteCommandV2(session);
+	} else {
+		querySent = SendRemoteCommandParams(session, 0, NULL, NULL,
+												session->useBinaryCopyFormat);
+	}
+	if (querySent == 0)
+	{
+		session->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
+	int singleRowMode = PQsetSingleRowMode(session->conn);
+	if (singleRowMode == 0)
+	{
+		session->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
+
+	return true;
+}
+
+static bool
+StartSubPlanExecution(SubPlanParallel* session) {
+	//SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
+	bool querySent = SendQuery(session);
+	if (querySent)
+	{
+		session->commandsSent++;
+	}
+	return querySent;
+}
+
+
+static bool
+ReceiveResultsV2(SubPlanParallel* session) {
+	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
+	CopyOutState *copyOutState = execution->copyOutState;
+	bool fetchDone = false;
+	while (!PQisBusy(session->conn))
+	{
+		uint32 columnIndex = 0;
+		uint32 rowsProcessed = 0;
+
+		PGresult *result = PQgetResult(session->conn);
+		if (result == NULL)
+		{
+			/* no more results, break out of loop and free allocated memory */
+			fetchDone = true;
+			break;
+		}
+		ExecStatusType resultStatus = PQresultStatus(result);
+		if (resultStatus == PGRES_COMMAND_OK)
+		{
+			PQclear(result);
+			session->queryIndex++;
+			continue;
+		}
+		else if (resultStatus == PGRES_TUPLES_OK) {
+			Assert(PQntuples(result) == 0);
+			PQclear(result);
+			session->queryIndex++;
+			continue;
+		}
+		else if (resultStatus != PGRES_SINGLE_TUPLE)
+		{
+			ereport(ERROR, (errmsg("resultStatus != PGRES_SINGLE_TUPLE")));
+		}
+		rowsProcessed = PQntuples(result);
+		uint32 columnCount = PQnfields(result);
+		if (session->writeBinarySignature == false) {
+			session->columnValues = palloc0(columnCount * sizeof(char));
+			session->columnNulls = palloc0(columnCount * sizeof(bool));
+			session->columeSizes = palloc0(columnCount * sizeof(int));
+			session->typeArray = palloc0(columnCount * sizeof(Oid));
+			int availableColumnCount = 0;
+			
+			// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
+			for (int columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+				typeArray[columnIndex] = PQftype(result,columnIndex);
+				if (typeArray[columnIndex] != InvalidOid) {
+					availableColumnCount++;
+				}
+				//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(result, columnIndex),PQftype(result,columnIndex))));
+			}
+			session->availableColumnCount = availableColumnCount;
+			if (session->useBinaryCopyFormat) {
+				resetStringInfo(copyOutState->fe_msgbuf);
+				/* Signature */
+				CopySendData(copyOutState, BinarySignature, 11);
+				/* Flags field (no OIDs) */
+				CopySendInt32(copyOutState, zero);
+				/* No header extension */
+				CopySendInt32(copyOutState, zero);
+				WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);
+			}
+			session->writeBinarySignature = true;
+		}
+		for (int i = 0; i < rowsProcessed; i++)
+		{
+			memset(columnValues, 0, columnCount * sizeof(char));
+			memset(columnNulls, 0, columnCount * sizeof(bool));
+			memset(columeSizes, 0, columnCount * sizeof(int));
+			for (int j = 0; j < columnCount; j++){
+				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+				if (PQgetisnull(result, i, j))
+				{
+					columnValues[j] = NULL;
+					columnNulls[j] = true;
+				}else {
+					char *value = PQgetvalue(result, i, j);
+
+					if (session->useBinaryCopyFormat){
+						if (PQfformat(result, j) == 0){
+							ereport(ERROR, (errmsg("unexpected text result")));
+						}
+					}
+					columnValues[j] = value;
+				}
+				columeSizes[j] = PQgetlength(result,i,j);
+			}
+			//ereport(DEBUG3, (errmsg("44444")));
+			uint32 appendedColumnCount = 0;
+			resetStringInfo(copyOutState->fe_msgbuf);
+			
+			if (session->useBinaryCopyFormat)
+			{
+				//ereport(DEBUG3, (errmsg("CopySendInt16")));
+				CopySendInt16(copyOutState, columnCount);
+			}
+			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
+				//ereport(DEBUG3, (errmsg("44444------")));
+				char *value = columnValues[columnIndex];
+				int size = columeSizes[columnIndex];
+				//ereport(DEBUG3, (errmsg("44444@@@@@")));
+				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				bool isNull = columnNulls[columnIndex];
+				bool lastColumn = false;
+				if (typeArray[columnIndex] == InvalidOid) {
+					continue;
+				} else if (session->useBinaryCopyFormat) {
+					if (!isNull) {
+						CopySendInt32(copyOutState, size);
+						CopySendData(copyOutState, value, size);
+					}
+					else
+					{
+						//ereport(DEBUG3, (errmsg("4.4")));
+						CopySendInt32(copyOutState, -1);
+					}
+				} else {
+					if (!isNull) {
+						//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+						CopyAttributeOutText(copyOutState, value);
+					} else {
+						CopySendString(copyOutState, copyOutState->null_print_client);
+					}
+					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
+					if (!lastColumn){
+						CopySendChar(copyOutState, copyOutState->delim[0]);
+					}
+
+				}
+				appendedColumnCount++;
+			}
+			//ereport(DEBUG3, (errmsg("55555")));
+			if (!session->useBinaryCopyFormat)
+			{
+				/* append default line termination string depending on the platform */
+		#ifndef WIN32
+				CopySendChar(copyOutState, '\n');
+		#else
+				CopySendString(copyOutState, "\r\n");
+		#endif
+			}
+			//ereport(DEBUG3, (errmsg("66666")));
+			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
+			session->rowsProcessed++;
+			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+			//ereport(DEBUG3, (errmsg("77777")));
+		}
+		PQclear(result);
+	}
+	return fetchDone;
+}
+/*
  * TransactionStateMachineV2 manages the execution of tasks over a connection.
  */
 static void
-TransactionStateMachineV2(SubPlanParallelExecution* execution, SubPlanParallel* subPlan)
+TransactionStateMachineV2(SubPlanParallel* session)
 {
-	TransactionBlocksUsage useRemoteTransactionBlocks =
-		execution->transactionProperties->useRemoteTransactionBlocks;
-	RemoteTransaction *transaction = &(subPlan->remoteTransaction);
+	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
+	// TransactionBlocksUsage useRemoteTransactionBlocks =
+	// 	execution->transactionProperties->useRemoteTransactionBlocks;
+	RemoteTransaction *transaction = &(session->remoteTransaction);
 	RemoteTransactionState currentState;
 	do {
-		;
+		currentState = transaction->transactionState;
+		if (!CheckConnectionReadyV2(session))
+		{
+			/* connection is busy, no state transitions to make */
+			break;
+		}
+		switch (currentState)
+		{
+			case REMOTE_TRANS_NOT_STARTED: {
+				bool subPlanExecutionStarted =
+						StartSubPlanExecution(session);
+				if (!subPlanExecutionStarted)
+				{
+					/* no need to continue, connection is lost */
+					Assert(session->connectionState == MULTI_CONNECTION_LOST);
+					return;
+				}
+				transaction->transactionState = REMOTE_TRANS_SENT_COMMAND;
+				UpdateConnectionWaitFlagsV2(session,
+										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+				break;
+			}
+			case REMOTE_TRANS_SENT_BEGIN:
+			case REMOTE_TRANS_CLEARING_RESULTS: {
+				UpdateConnectionWaitFlagsV2(session,
+										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+				execution->unfinishedTaskCount--;
+			}
+			case REMOTE_TRANS_SENT_COMMAND:{
+				bool fetchDone = ReceiveResultsV2(session);
+				if (!fetchDone)
+				{
+					break;
+				}
+				transaction->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
+				break;
+			}
+			default:
+			{
+				break;
+			}
+		}
 	}
 	while (transaction->transactionState != currentState);
 }
@@ -689,7 +1081,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 			case MULTI_CONNECTION_CONNECTED:
 			{
 				/* connection is ready, run the transaction state machine */
-				//TransactionStateMachine(session); // todo 
+				TransactionStateMachineV2(session); 
 				break;
 			}
 			case MULTI_CONNECTION_LOST:
@@ -970,7 +1362,7 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
 		session->latestUnconsumedWaitEvents = event->events;
-
+		ereport(ERROR, (errmsg("#########   ProcessWaitEventsV2  ########")));
 		ConnectionStateMachineV2(session);
 	}
 }
@@ -994,8 +1386,10 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		int eventSetSize = GetEventSetSizeV2(execution->parallelTaskList);
 		/* always (re)build the wait event set the first time */
 		execution->rebuildWaitEventSet = true;
+		ereport(ERROR, (errmsg("#########   SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
 		while (execution->unfinishedTaskCount > 0 && !cancellationReceived)
 		{
+			ereport(ERROR, (errmsg("#########  in while loop SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
 			if (execution->rebuildWaitEventSet)
 			{
 				if (events != NULL)
@@ -1030,7 +1424,15 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			FreeWaitEventSet(execution->waitEventSet);
 			execution->waitEventSet = NULL;
 		}
-
+		// close connection
+		foreach_ptr(plan, execution->parallelTaskList)
+		{
+			if (plan->conn != NULL)
+			{
+				PQfinish(plan->conn);
+				plan->conn = NULL;
+			}
+		}
 		//CleanUpSessions(execution);
 	}
 	PG_CATCH();
@@ -1228,8 +1630,6 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	TimestampTz startTimestamp = GetCurrentTimestamp();
 	const int fileFlags = (O_APPEND | O_CREAT | O_RDWR | O_TRUNC | PG_BINARY);
 	const int fileMode = (S_IRUSR | S_IWUSR);
-	const char *delimiterCharacter = "\t";
-	const char *nullPrintCharacter = "\\N";
 	List *sequenceJobList = NIL;
 	List *parallelJobList = NIL;
 	DistributedSubPlan *subPlan = NULL;
@@ -1264,7 +1664,18 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
 						//ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
+						if (CanUseBinaryCopyFormatForTargetList(customScan->scan.plan.targetlist)) {
+							plan->useBinaryCopyFormat = true;
+						} else {
+							plan->useBinaryCopyFormat = false;
+						}
+
+						ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
+						plan->writeBinarySignature = false;
+						plan->remoteTransaction.transactionState = REMOTE_TRANS_NOT_STARTED;
 						plan->subPlan = subPlan;
+						plan->queryIndex = 0;
+						plan->rowsProcessed = 0;
 						plan->fileName = QueryResultFileName(resultId);
 						CreateIntermediateResultsDirectory();
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
