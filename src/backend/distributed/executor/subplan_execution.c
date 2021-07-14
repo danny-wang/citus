@@ -37,6 +37,7 @@
 #include "distributed/connection_management.h"
 #include "distributed/adaptive_executor.h"
 #include "distributed/transmit.h"
+#include "distributed/cancel_utils.h"
 #include "nodes/print.h"
 #include <time.h>
 #include <sys/time.h>
@@ -320,13 +321,33 @@ typedef struct SubPlanParallel {
 	FileCompat fc;
 	char *nodeName;
 	uint32 nodePort;
+	char *user;
+	char *databse;
 	char *queryStringLazy;
 	PGconn *conn;
+	/* state of the connection */
+	MultiConnectionState connectionState;
+	bool claimedExclusively;
+	/* signal that the connection is ready for read/write */
+	bool ioReady;
+	/* whether to wait for read/write */
+	int waitFlags;
+	bool runQuery;
+	/* time connection establishment was started, for timeout */
+	TimestampTz connectionStart;
+	/* index in the wait event set */
+	int waitEventSetIndex;
+	/* events reported by the latest call to WaitEventSetWait */
+	int latestUnconsumedWaitEvents;
+	/* information about the associated remote transaction */
+	RemoteTransaction remoteTransaction;
+	SubPlanParallelExecution* subPlanParallelExecution;
 } SubPlanParallel;
 
 
 typedef struct SubPlanParallelExecution
 {
+	List *parallelTaskList;
 	/*
 	 * Flag to indiciate that the set of connections we are interested
 	 * in has changed and waitEventSet needs to be rebuilt.
@@ -358,6 +379,8 @@ typedef struct SubPlanParallelExecution
 
 	/* number of tasks that still need to be executed */
 	int unfinishedTaskCount;
+	/* transactional properties of the current execution */
+	TransactionProperties *transactionProperties;
 	/*
 	 * Flag to indicate whether throwing errors on cancellation is
 	 * allowed.
@@ -393,7 +416,646 @@ typedef struct SubPlanParallelExecution
 	 * do cleanup for repartition queries.
 	 */
 	List *jobIdList;
-};
+	/* number of connections that were established */
+	int activeConnectionCount;
+
+	/*
+	 * Keep track of how many connections are ready for execution, in
+	 * order to (efficiently) know whether more connections to the worker
+	 * are needed.
+	 */
+	int idleConnectionCount;
+
+	/* number of connections that did not send a command */
+	int unusedConnectionCount;
+
+	/* number of failed connections */
+	int failedConnectionCount;
+
+}SubPlanParallelExecution;
+
+static SubPlanParallelExecution * CreateSubPlanParallelExecution(
+														 List *taskList,
+														 List *jobIdList);
+static SubPlanParallelExecution *
+CreateSubPlanParallelExecution(List *taskList, List *jobIdList)
+{
+	SubPlanParallelExecution *execution =
+		(SubPlanParallelExecution *) palloc0(sizeof(SubPlanParallelExecution));
+	execution->parallelTaskList = taskList;
+	execution->workerList = NIL;
+	execution->sessionList = NIL;
+	execution->rowsProcessed = 0;
+
+	execution->raiseInterrupts = true;
+
+	execution->rebuildWaitEventSet = false;
+	execution->waitFlagsChanged = false;
+
+	execution->failed = false;
+
+	execution->jobIdList = jobIdList;
+	execution->totalTaskCount = list_length(execution->parallelTaskList);
+	execution->unfinishedTaskCount = list_length(execution->parallelTaskList);
+	execution->activeConnectionCount = 0;
+	execution->idleConnectionCount = 0;
+	execution->unusedConnectionCount = 0;
+	execution->failedConnectionCount = 0;
+	return execution;
+}
+
+// static WorkerSession *
+// CreateWorkerSession(SubPlanParallelExecution* execution, SubPlanParallel* subPlan)
+// {
+// 	DistributedExecution *execution = workerPool->distributedExecution;
+// 	static uint64 sessionId = 1;
+
+// 	WorkerSession *session = NULL;
+// 	foreach_ptr(session, workerPool->sessionList)
+// 	{
+// 		if (session->connection == connection)
+// 		{
+// 			return session;
+// 		}
+// 	}
+
+
+// 	session = (WorkerSession *) palloc0(sizeof(WorkerSession));
+// 	session->sessionId = sessionId++;
+// 	session->connection = connection;
+// 	session->workerPool = workerPool;
+// 	session->commandsSent = 0;
+
+// 	dlist_init(&session->pendingTaskQueue);
+// 	dlist_init(&session->readyTaskQueue);
+
+// 	 keep track of how many connections are ready 
+// 	if (connection->connectionState == MULTI_CONNECTION_CONNECTED)
+// 	{
+// 		workerPool->activeConnectionCount++;
+// 		workerPool->idleConnectionCount++;
+// 	}
+
+// 	workerPool->unusedConnectionCount++;
+
+// 	/*
+// 	 * Record the first connection establishment time to the pool. We need this
+// 	 * to enforce NodeConnectionTimeout.
+// 	 */
+// 	if (list_length(workerPool->sessionList) == 0)
+// 	{
+// 		INSTR_TIME_SET_CURRENT(workerPool->poolStartTime);
+// 		workerPool->checkForPoolTimeout = true;
+// 	}
+
+// 	workerPool->sessionList = lappend(workerPool->sessionList, session);
+// 	execution->sessionList = lappend(execution->sessionList, session);
+
+// 	return session;
+// }
+
+/*
+ * OpenNewConnections opens the given amount of connections for the given workerPool.
+ */
+static void
+OpenNewConnectionsV2(SubPlanParallel* subPlan) {
+	int connectionFlags = 0;
+	int adaptiveConnectionManagementFlag = 0;
+	connectionFlags |= adaptiveConnectionManagementFlag;
+
+	//ConnectionHashKey key;
+	bool found;
+	char *hostname = subPlan->nodeName;
+	/* do some minimal input checks */
+	if (strlen(hostname) > MAX_NODE_LENGTH)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+						errmsg("hostname exceeds the maximum length of %d",
+							   MAX_NODE_LENGTH)));
+	}
+	subPlan->user = CurrentUserName();
+	subPlan->database = CurrentDatabaseName();
+	subPlan->runQuery = false;
+	/*
+	 * Assign the initial state in the connection state machine. The connection
+	 * may already be open, but ConnectionStateMachine will immediately detect
+	 * this.
+	 */
+	char conninfo[100];
+	sprintf(conninfo, "host=%s dbname=%s user=%s password=password port=%d", pSubPlan->nodeName, connection->database,connection->user,pSubPlan->nodePort);
+	ereport(DEBUG3, (errmsg("OpenNewConnectionsV2 conninfo:%s",conninfo)));
+	subPlan->conn = PQconnectStart(conninfo);
+	subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
+	/*
+	 * Ensure that subsequent calls to StartNodeUserDatabaseConnection get a
+	 * different connection.
+	 */
+	subPlan->claimedExclusively = true;
+	return;
+}
+
+/*
+ * TransactionStateMachineV2 manages the execution of tasks over a connection.
+ */
+static void
+TransactionStateMachineV2(SubPlanParallelExecution* execution, SubPlanParallel* subPlan)
+{
+	TransactionBlocksUsage useRemoteTransactionBlocks =
+		execution->transactionProperties->useRemoteTransactionBlocks;
+	RemoteTransaction *transaction = &(subPlan->remoteTransaction);
+	RemoteTransactionState currentState;
+	do {
+		;
+	}
+	while (transaction->transactionState != currentState);
+}
+static void
+ConnectionStateMachineV2(SubPlanParallel* subPlan)
+{
+	SubPlanParallelExecution* execution = subPlan->subPlanParallelExecution;
+	MultiConnectionState currentState;
+	do {
+		currentState = subPlan->connectionState;
+		switch (currentState)
+		{
+			case MULTI_CONNECTION_INITIAL:
+			{
+				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_INITIAL")));
+				/* simply iterate the state machine */
+				subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
+				break;
+			}
+			case MULTI_CONNECTION_TIMED_OUT:
+			{
+				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_TIMED_OUT")));
+				/*
+				 * When the connection timeout happens, the connection
+				 * might still be able to successfuly established. However,
+				 * the executor should not try to use this connection as
+				 * the state machines might have already progressed and used
+				 * new pools/sessions instead. That's why we terminate the
+				 * connection, clear any state associated with it.
+				 */
+				subPlan->connectionState = MULTI_CONNECTION_FAILED;
+				break;
+			}
+			case MULTI_CONNECTION_CONNECTING:
+			{
+				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_CONNECTING")));
+				ConnStatusType status = PQstatus(subPlan->conn);
+				if (status == CONNECTION_OK)
+				{
+					ereport(DEBUG3, (errmsg("ConnStatusType status == CONNECTION_OK")));
+
+					execution->activeConnectionCount++;
+					execution->idleConnectionCount++;
+					if (subPlan->waitFlags == (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE)) {
+						;
+					} else {
+						subPlan->waitFlags = (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+						/* without signalling the execution, the flag changes won't be reflected */
+						execution->waitFlagsChanged = true;
+					}
+					subPlan->connectionState = MULTI_CONNECTION_CONNECTED;
+					break;
+				} 
+				else if (status == CONNECTION_BAD)
+				{
+					ereport(DEBUG3, (errmsg("ConnStatusType status == CONNECTION_BAD")));
+					subPlan->connectionState = MULTI_CONNECTION_FAILED;
+					break;
+				}
+				int beforePollSocket = PQsocket(subPlan->conn);
+				PostgresPollingStatusType pollMode = PQconnectPoll(subPlan->conn);
+				ereport(DEBUG3, (errmsg("beforePollSocket = %d, pollMode = %d",beforePollSocket, pollMode)));
+				if (beforePollSocket != PQsocket(subPlan->conn))
+				{
+					ereport(DEBUG3, (errmsg("beforePollSocket != PQsocket(subPlan->conn)")));
+					/* rebuild the wait events if PQconnectPoll() changed the socket */
+					execution->rebuildWaitEventSet = true;
+				}
+
+				if (pollMode == PGRES_POLLING_FAILED)
+				{
+					ereport(DEBUG3, (errmsg("1.1")));
+					subPlan->connectionState = MULTI_CONNECTION_FAILED;
+				}
+				else if (pollMode == PGRES_POLLING_READING)
+				{
+					ereport(DEBUG3, (errmsg("1.2")));
+					if (subPlan->waitFlags == WL_SOCKET_READABLE) {
+						;
+					} else {
+						subPlan->waitFlags = WL_SOCKET_READABLE;
+						execution->waitFlagsChanged = true;
+					}
+					/* we should have a valid socket */
+					Assert(PQsocket(subPlan->conn) != -1);
+				}
+				else if (pollMode == PGRES_POLLING_WRITING)
+				{
+					ereport(DEBUG3, (errmsg("1.3")));
+					if (subPlan->waitFlags == WL_SOCKET_WRITEABLE) {
+						;
+					} else {
+						subPlan->waitFlags = WL_SOCKET_WRITEABLE;
+						execution->waitFlagsChanged = true;
+					}
+					/* we should have a valid socket */
+					Assert(PQsocket(subPlan->conn) != -1);
+				}
+				else
+				{  
+					ereport(DEBUG3, (errmsg("1.3")));
+					execution->activeConnectionCount++;
+					execution->idleConnectionCount++;
+					ereport(DEBUG3, (errmsg("activeConnectionCount:%d, idleConnectionCount:%d",execution->activeConnectionCount,execution->idleConnectionCount)));
+					if (subPlan->waitFlags == (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE)) {
+						;
+					} else {
+						subPlan->waitFlags = (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+						/* without signalling the execution, the flag changes won't be reflected */
+						execution->waitFlagsChanged = true;
+					}
+					subPlan->connectionState = MULTI_CONNECTION_CONNECTED;
+					ereport(DEBUG3, (errmsg("set subPlan->connectionState to MULTI_CONNECTION_CONNECTED")));
+					/* we should have a valid socket */
+					Assert(PQsocket(subPlan->conn) != -1);
+				}
+
+				break;
+			}
+			case MULTI_CONNECTION_CONNECTED:
+			{
+				/* connection is ready, run the transaction state machine */
+				//TransactionStateMachine(session); // todo 
+				break;
+			}
+			case MULTI_CONNECTION_LOST:
+			{
+				/* managed to connect, but connection was lost */
+				execution->activeConnectionCount--;
+
+				if (subPlan->runQuery == false)
+				{
+					/* this was an idle connection */
+					execution->idleConnectionCount--;
+				}
+
+				subPlan->connectionState = MULTI_CONNECTION_FAILED;
+				break;
+			}
+
+			case MULTI_CONNECTION_FAILED:
+			{
+				/* connection failed or was lost */
+				int totalConnectionCount = list_length(execution->parallelTaskList);
+				execution->failedConnectionCount++;
+
+				execution->unfinishedTaskCount--;
+				execution->failed = true;
+				RemoteTransaction *transaction = &subPlan->remoteTransaction;
+
+				transaction->transactionFailed = true;
+				if (execution->failed) {
+					/* a task has failed due to this connection failure */
+					//ReportConnectionError(connection, ERROR);
+					char *messageDetail = NULL;
+					if (subPlan->conn != NULL)
+					{
+						messageDetail = pchomp(PQerrorMessage(subPlan->conn));
+					}
+					if (messageDetail)
+					{
+						/*
+						 * We don't use ApplyLogRedaction(messageDetail) as we expect any error
+						 * detail that requires log reduction should have done it locally.
+						 */
+						ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
+										 errmsg("connection to the remote node %s:%d failed with the "
+												"following error: %s", subPlan->nodeName, subPlan->nodePort,
+												messageDetail)));
+					}
+					else
+					{
+						ereport(ERROR, (errcode(ERRCODE_CONNECTION_FAILURE),
+										 errmsg("connection to the remote node %s:%d failed",
+												subPlan->nodeName, subPlan->nodePort)));
+					}
+				}
+				/* remove the connection */
+				subPlan->claimedExclusively = false;
+				/*
+				 * We forcefully close the underlying libpq connection because
+				 * we don't want any subsequent execution (either subPlan executions
+				 * or new command executions within a transaction block) use the
+				 * connection.
+				 *
+				 * However, we prefer to keep the MultiConnection around until
+				 * the end of FinishDistributedExecution() to simplify the code.
+				 * Thus, we prefer ShutdownConnection() over CloseConnection().
+				 */
+				//ShutdownConnection(connection);
+				if (PQstatus(subPlan->conn) == CONNECTION_OK &&
+					PQtransactionStatus(subPlan->conn) == PQTRANS_ACTIVE)
+				{
+					//SendCancelationRequest(connection);
+					char errorBuffer[ERROR_BUFFER_SIZE] = { 0 };
+
+					PGcancel *cancelObject = PQgetCancel(subPlan->conn);
+					if (cancelObject == NULL)
+					{
+						/* this can happen if connection is invalid */
+						;
+					} else {
+						bool cancelSent = PQcancel(cancelObject, errorBuffer, sizeof(errorBuffer));
+						if (!cancelSent)
+						{
+							ereport(WARNING, (errmsg("could not issue cancel request"),
+											  errdetail("Client error: %s", errorBuffer)));
+						}
+					
+						PQfreeCancel(cancelObject);
+
+					}
+		
+				}
+				//CitusPQFinish(connection);
+				if (subPlan->conn != NULL)
+				{
+					PQfinish(csubPlan->conn);
+					subPlan->conn = NULL;
+				}
+				/* remove connection from wait event set */
+				execution->rebuildWaitEventSet = true;
+				/*
+				 * Reset the transaction state machine since CloseConnection()
+				 * relies on it and even if we're not inside a distributed transaction
+				 * we set the transaction state (e.g., REMOTE_TRANS_SENT_COMMAND).
+				 */
+				if (!subPlan->remoteTransaction.beginSent)
+				{
+					subPlan->remoteTransaction.transactionState =
+						REMOTE_TRANS_NOT_STARTED;
+				}
+
+				break;
+ 			}
+			default:
+			{
+				break;
+			}
+		}
+		
+	} while (subPlan->connectionState != currentState)
+}
+
+/*
+ * GetEventSetSize returns the event set size for a list of sessions.
+ */
+static int
+GetEventSetSizeV2(List *sessionList)
+{
+	/* additional 2 is for postmaster and latch */
+	return list_length(sessionList) + 2;
+}
+
+
+/*
+ * BuildWaitEventSet creates a WaitEventSet for the given array of connections
+ * which can be used to wait for any of the sockets to become read-ready or
+ * write-ready.
+ */
+static WaitEventSet *
+BuildWaitEventSetV2(List *sessionList)
+{
+	/* additional 2 is for postmaster and latch */
+	int eventSetSize = GetEventSetSizeV2(sessionList);
+
+	WaitEventSet *waitEventSet =
+		CreateWaitEventSet(CurrentMemoryContext, eventSetSize);
+
+	SubPlanParallel *session = NULL;
+	foreach_ptr(session, sessionList)
+	{
+		if (session->conn == NULL)
+		{
+			/* connection died earlier in the transaction */
+			continue;
+		}
+
+		if (session->waitFlags == 0)
+		{
+			/* not currently waiting for this connection */
+			continue;
+		}
+
+		int sock = PQsocket(session->conn);
+		if (sock == -1)
+		{
+			/* connection was closed */
+			continue;
+		}
+
+		int waitEventSetIndex = AddWaitEventToSet(waitEventSet, session->waitFlags,
+												  sock, NULL, (void *) session);
+		session->waitEventSetIndex = waitEventSetIndex;
+	}
+
+	AddWaitEventToSet(waitEventSet, WL_POSTMASTER_DEATH, PGINVALID_SOCKET, NULL, NULL);
+	AddWaitEventToSet(waitEventSet, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
+
+	return waitEventSet;
+}
+
+/*
+ * RebuildWaitEventSet updates the waitEventSet for the distributed execution.
+ * This happens when the connection set for the distributed execution is changed,
+ * which means that we need to update which connections we wait on for events.
+ * It returns the new event set size.
+ */
+static int
+RebuildWaitEventSetV2(SubPlanParallelExecution *execution)
+{
+	if (execution->waitEventSet != NULL)
+	{
+		FreeWaitEventSet(execution->waitEventSet);
+		execution->waitEventSet = NULL;
+	}
+
+	execution->waitEventSet = BuildWaitEventSetV2(execution->parallelTaskList);
+	execution->rebuildWaitEventSet = false;
+	execution->waitFlagsChanged = false;
+
+	return GetEventSetSizeV2(execution->parallelTaskList);
+}
+
+/*
+ * RebuildWaitEventSetFlags modifies the given waitEventSet with the wait flags
+ * for connections in the sessionList.
+ */
+static void
+RebuildWaitEventSetFlagsV2(WaitEventSet *waitEventSet, List *sessionList)
+{
+	SubPlanParallel *session = NULL;
+	foreach_ptr(session, sessionList)
+	{
+		int waitEventSetIndex = session->waitEventSetIndex;
+
+		if (session->conn == NULL)
+		{
+			/* connection died earlier in the transaction */
+			continue;
+		}
+
+		if (session->waitFlags == 0)
+		{
+			/* not currently waiting for this connection */
+			continue;
+		}
+
+		int sock = PQsocket(session->conn);
+		if (sock == -1)
+		{
+			/* connection was closed */
+			continue;
+		}
+
+		ModifyWaitEvent(waitEventSet, waitEventSetIndex, connection->waitFlags, NULL);
+	}
+}
+
+
+/*
+ * ProcessWaitEvents processes the received events from connections.
+ */
+static void
+ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int eventCount,
+				  bool *cancellationReceived)
+{
+	int eventIndex = 0;
+
+	/* process I/O events */
+	for (; eventIndex < eventCount; eventIndex++)
+	{
+		WaitEvent *event = &events[eventIndex];
+
+		if (event->events & WL_POSTMASTER_DEATH)
+		{
+			ereport(ERROR, (errmsg("postmaster was shut down, exiting")));
+		}
+
+		if (event->events & WL_LATCH_SET)
+		{
+			ResetLatch(MyLatch);
+
+			if (execution->raiseInterrupts)
+			{
+				CHECK_FOR_INTERRUPTS();
+			}
+
+			if (IsHoldOffCancellationReceived())
+			{
+				/*
+				 * Break out of event loop immediately in case of cancellation.
+				 * We cannot use "return" here inside a PG_TRY() block since
+				 * then the exception stack won't be reset.
+				 */
+				*cancellationReceived = true;
+			}
+
+			continue;
+		}
+
+		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
+		session->latestUnconsumedWaitEvents = event->events;
+
+		ConnectionStateMachineV2(session);
+	}
+}
+
+void
+RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
+	WaitEvent *events = NULL;
+	PG_TRY();
+	{
+		SubPlanParallel *plan = NULL;
+		foreach_ptr(plan, execution->parallelTaskList)
+		{
+			OpenNewConnectionsV2(plan);
+		}
+		foreach_ptr(plan, execution->parallelTaskList)
+		{
+			ConnectionStateMachineV2(execution, plan);
+		}
+		bool cancellationReceived = false;
+
+		int eventSetSize = GetEventSetSizeV2(execution->sessionList);
+		/* always (re)build the wait event set the first time */
+		execution->rebuildWaitEventSet = true;
+		while (execution->unfinishedTaskCount > 0 && !cancellationReceived)
+		{
+			if (execution->rebuildWaitEventSet)
+			{
+				if (events != NULL)
+				{
+					/*
+					 * The execution might take a while, so explicitly free at this point
+					 * because we don't need anymore.
+					 */
+					pfree(events);
+					events = NULL;
+				}
+				eventSetSize = RebuildWaitEventSetV2(execution);
+				events = palloc0(eventSetSize * sizeof(WaitEvent));
+			} else if (execution->waitFlagsChanged)
+			{
+				RebuildWaitEventSetFlagsV2(execution->waitEventSet, execution->parallelTaskList);
+				execution->waitFlagsChanged = false;
+			}
+			/* wait for I/O events */
+			long timeout = 2000;
+			int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
+											  eventSetSize, WAIT_EVENT_CLIENT_READ);
+			ProcessWaitEvents(execution, events, eventCount, &cancellationReceived);
+		}
+		if (events != NULL)
+		{
+			pfree(events);
+		}
+
+		if (execution->waitEventSet != NULL)
+		{
+			FreeWaitEventSet(execution->waitEventSet);
+			execution->waitEventSet = NULL;
+		}
+
+		//CleanUpSessions(execution);
+	}
+	PG_CATCH();
+	{
+		/*
+		 * We can still recover from error using ROLLBACK TO SAVEPOINT,
+		 * unclaim all connections to allow that.
+		 */
+		//UnclaimAllSessionConnections(execution->sessionList);
+
+		/* do repartition cleanup if this is a repartition query*/
+		// if (list_length(execution->jobIdList) > 0)
+		// {
+		// 	DoRepartitionCleanup(execution->jobIdList);
+		// }
+
+		// if (execution->waitEventSet != NULL)
+		// {
+		// 	FreeWaitEventSet(execution->waitEventSet);
+		// 	execution->waitEventSet = NULL;
+		// }
+
+		PG_RE_THROW();
+	}
+	PG_END_TRY();
+}
 /* ------------- danny test end ---------------  */
 
 /*
@@ -613,6 +1275,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->nodeName = en->nodeName;
 						plan->nodePort = en->nodePort; 
 						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
+						//plan->connectionState = MULTI_CONNECTION_INITIAL;
 						//ereport(DEBUG3, (errmsg("####### 6.2")));
 						parallelJobList = lappend(parallelJobList, plan);
 						//ereport(DEBUG3, (errmsg("####### 6.3")));
@@ -635,6 +1298,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 			sequenceJobList = lappend(sequenceJobList, subPlan);
 		}
 	}
+	SubPlanParallelExecution *execution = CreateSubPlanParallelExecution(parallelJobList, NIL);
+
 	long durationSeconds = 0.0;
 	int durationMicrosecs = 0;
 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
