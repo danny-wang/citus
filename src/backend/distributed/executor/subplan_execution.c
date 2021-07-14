@@ -758,14 +758,17 @@ StartSubPlanExecution(SubPlanParallel* session) {
 
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
+	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.1  ########")));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
+	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.2  ########")));
 	bool fetchDone = false;
 	while (!PQisBusy(session->conn))
 	{
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.3  ########")));
 		uint32 columnIndex = 0;
 		uint32 rowsProcessed = 0;
-
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.4  ########")));
 		PGresult *result = PQgetResult(session->conn);
 		if (result == NULL)
 		{
@@ -792,7 +795,9 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		}
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  ########")));
 		if (session->writeBinarySignature == false) {
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
 			session->columnValues = palloc0(columnCount * sizeof(char));
 			session->columnNulls = palloc0(columnCount * sizeof(bool));
 			session->columeSizes = palloc0(columnCount * sizeof(int));
@@ -807,6 +812,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				}
 				//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(result, columnIndex),PQftype(result,columnIndex))));
 			}
+			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7  ########")));
 			session->availableColumnCount = availableColumnCount;
 			if (session->useBinaryCopyFormat) {
 				resetStringInfo(copyOutState->fe_msgbuf);
@@ -820,6 +826,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			}
 			session->writeBinarySignature = true;
 		}
+		report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.8  ########")));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
 			memset(session->columnValues, 0, columnCount * sizeof(char));
@@ -852,6 +859,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				//ereport(DEBUG3, (errmsg("CopySendInt16")));
 				CopySendInt16(copyOutState, columnCount);
 			}
+			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				//ereport(DEBUG3, (errmsg("44444------")));
 				char *value = session->columnValues[columnIndex];
@@ -900,11 +908,14 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			//ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
 			session->rowsProcessed++;
+			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10  ########")));
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		PQclear(result);
+		report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
 	}
+	report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
 	return fetchDone;
 }
 /*
