@@ -928,9 +928,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 			/* connection is busy, no state transitions to make */
 			break;
 		}
+		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.5  ########")));
 		switch (currentState)
 		{
 			case REMOTE_TRANS_NOT_STARTED: {
+				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.6  ########")));
 				bool subPlanExecutionStarted =
 						StartSubPlanExecution(session);
 				if (!subPlanExecutionStarted)
@@ -946,11 +948,13 @@ TransactionStateMachineV2(SubPlanParallel* session)
 			}
 			case REMOTE_TRANS_SENT_BEGIN:
 			case REMOTE_TRANS_CLEARING_RESULTS: {
+				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.7  ########")));
 				UpdateConnectionWaitFlagsV2(session,
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
 				execution->unfinishedTaskCount--;
 			}
 			case REMOTE_TRANS_SENT_COMMAND:{
+				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.8  ########")));
 				bool fetchDone = ReceiveResultsV2(session);
 				if (!fetchDone)
 				{
@@ -966,6 +970,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 		}
 	}
 	while (transaction->transactionState != currentState);
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.9  ########")));
 }
 static void
 ConnectionStateMachineV2(SubPlanParallel* subPlan)
