@@ -812,7 +812,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				}
 				//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(result, columnIndex),PQftype(result,columnIndex))));
 			}
-			report(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7  ########")));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7  ########")));
 			session->availableColumnCount = availableColumnCount;
 			if (session->useBinaryCopyFormat) {
 				resetStringInfo(copyOutState->fe_msgbuf);
