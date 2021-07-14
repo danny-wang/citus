@@ -1313,7 +1313,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	int durationMicrosecs = 0;
 	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
 	// 						&durationMicrosecs);
-	// long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 	// ereport(DEBUG3, (errmsg("-------run find all independent subplans time cost:%d" ,durationMillisecs)));
 	// ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
