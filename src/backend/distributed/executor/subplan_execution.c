@@ -978,7 +978,6 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				if (session->queryDone) {
 					break;
 				}
-				execution->unfinishedTaskCount--;
 				break;
 			}
 			case REMOTE_TRANS_SENT_COMMAND:{
@@ -990,6 +989,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				}
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
+				execution->unfinishedTaskCount--;
 				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
 					session->waitEventSetIndex,session->rowsProcessed)));
 				break;
