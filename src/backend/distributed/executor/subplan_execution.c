@@ -780,6 +780,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			break;
 		}
 		ExecStatusType resultStatus = PQresultStatus(result);
+		ereport(DEBUG3, (errmsg("#########   resultStatus: %d  ########",resultStatus)));
 		if (resultStatus == PGRES_COMMAND_OK)
 		{
 			PQclear(result);
