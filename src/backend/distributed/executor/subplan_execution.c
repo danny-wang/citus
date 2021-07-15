@@ -551,8 +551,8 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	//ConnectionHashKey key;
 	bool found;
 	char *hostname = subPlan->nodeName;
-	if (strcmp(rte->eref->aliasname, "localhost") == 0) {
-		hostname = "172.31.87.38"
+	if (strcmp(subPlan->nodeName, "localhost") == 0) {
+		hostname = "172.31.87.38";
 	}
 	/* do some minimal input checks */
 	if (strlen(hostname) > MAX_NODE_LENGTH)
