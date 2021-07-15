@@ -931,7 +931,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 static void
 TransactionStateMachineV2(SubPlanParallel* session)
 {
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ########")));
+	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ,session->waitEventSetIndex:%d ########",session->waitEventSetIndex)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
 	// TransactionBlocksUsage useRemoteTransactionBlocks =
@@ -943,7 +943,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 	do {
 		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
 		currentState = session->transactionState;
-		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2  ########")));
+		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
 		if (!CheckConnectionReadyV2(session))
 		{
 			/* connection is busy, no state transitions to make */
@@ -967,7 +967,9 @@ TransactionStateMachineV2(SubPlanParallel* session)
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
 				break;
 			}
-			case REMOTE_TRANS_SENT_BEGIN:
+			case REMOTE_TRANS_SENT_BEGIN:{
+				break;
+			}
 			case REMOTE_TRANS_CLEARING_RESULTS: {
 				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.7  ########")));
 				UpdateConnectionWaitFlagsV2(session,
