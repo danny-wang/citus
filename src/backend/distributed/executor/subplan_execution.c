@@ -1522,7 +1522,7 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 				execution->waitFlagsChanged = false;
 			}
 			/* wait for I/O events */
-			long timeout = 10000;
+			long timeout = -1;
 			int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
 											  eventSetSize, WAIT_EVENT_CLIENT_READ);
 			ProcessWaitEventsV2(execution, events, eventCount, &cancellationReceived);
