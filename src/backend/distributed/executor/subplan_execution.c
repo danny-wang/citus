@@ -553,6 +553,7 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	char *hostname = subPlan->nodeName;
 	if (strcmp(subPlan->nodeName, "localhost") == 0) {
 		hostname = "172.31.87.38";
+		subPlan->nodePort = 60001;
 	}
 	/* do some minimal input checks */
 	if (strlen(hostname) > MAX_NODE_LENGTH)
