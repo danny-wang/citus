@@ -1784,8 +1784,8 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						} else {
 							plan->useBinaryCopyFormat = false;
 						}
-						elog_node_display(LOG, "task parse tree", task, Debug_pretty_print);
-						ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
+						//elog_node_display(LOG, "task parse tree", task, Debug_pretty_print);
+						//ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
 						plan->writeBinarySignature = false;
 						plan->transactionState = REMOTE_TRANS_NOT_STARTED;
 						plan->transactionFailed = false;
@@ -1811,7 +1811,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							pg_get_query_def(task->taskQuery.data.jobQueryReferenceForLazyDeparsing, subqueryString);
 							plan->queryStringLazy = subqueryString->data;
 						}
-						ereport(DEBUG3, (errmsg("plan->queryStringLazy: %s",plan->queryStringLazy)));
+						//ereport(DEBUG3, (errmsg("plan->queryStringLazy: %s",plan->queryStringLazy)));
 						//plan->connectionState = MULTI_CONNECTION_INITIAL;
 						//ereport(DEBUG3, (errmsg("####### 6.2")));
 						parallelJobList = lappend(parallelJobList, plan);
