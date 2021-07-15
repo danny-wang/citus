@@ -627,26 +627,26 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	}
 
 	/* try to send all pending data */
-	int sendStatus = PQflush(session->conn);
-	if (sendStatus == -1)
-	{
-		session->connectionState = MULTI_CONNECTION_LOST;
-		return false;
-	}
-	else if (sendStatus == 1)
-	{
-		/* more data to send, wait for socket to become writable */
-		waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
-	}
-	ereport(DEBUG3, (errmsg("1.2")));
-	if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
-	{
-		if (PQconsumeInput(session->conn) == 0)
-		{
-			session->connectionState = MULTI_CONNECTION_LOST;
-			return false;
-		}
-	}
+	// int sendStatus = PQflush(session->conn);
+	// if (sendStatus == -1)
+	// {
+	// 	session->connectionState = MULTI_CONNECTION_LOST;
+	// 	return false;
+	// }
+	// else if (sendStatus == 1)
+	// {
+	// 	/* more data to send, wait for socket to become writable */
+	// 	waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
+	// }
+	// ereport(DEBUG3, (errmsg("1.2")));
+	// if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
+	// {
+	// 	if (PQconsumeInput(session->conn) == 0)
+	// 	{
+	// 		session->connectionState = MULTI_CONNECTION_LOST;
+	// 		return false;
+	// 	}
+	// }
 
 	if (!PQisBusy(session->conn))
 	{
@@ -858,13 +858,16 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		}
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
-		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  ########")));
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  rowsProcessed: %d ########",rowsProcessed)));
 		if (session->writeBinarySignature == false) {
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
 			session->columnValues = palloc0(columnCount * sizeof(Datum));
 			session->columnNulls = palloc0(columnCount * sizeof(bool));
 			session->columeSizes = palloc0(columnCount * sizeof(int));
 			session->typeArray = palloc0(columnCount * sizeof(Oid));
+			memset(session->columnValues, 0, columnCount * sizeof(Datum));
+			memset(session->columnNulls, 0, columnCount * sizeof(bool));
+			memset(session->columeSizes, 0, columnCount * sizeof(int));
 			int availableColumnCount = 0;
 			
 			// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
@@ -894,11 +897,11 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		for (int i = 0; i < rowsProcessed; i++)
 		{
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
-			memset(session->columnValues, 0, columnCount * sizeof(Datum));
+			//memset(session->columnValues, 0, columnCount * sizeof(Datum));
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  ########")));
-			memset(session->columnNulls, 0, columnCount * sizeof(bool));
+			//memset(session->columnNulls, 0, columnCount * sizeof(bool));
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
-			memset(session->columeSizes, 0, columnCount * sizeof(int));
+			//memset(session->columeSizes, 0, columnCount * sizeof(int));
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
@@ -1453,6 +1456,7 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		if (event->events & WL_LATCH_SET)
 		{
+			ereport(DEBUG3, (errmsg("#########  event->events & WL_LATCH_SET  ########")));
 			ResetLatch(MyLatch);
 
 			if (execution->raiseInterrupts)
@@ -1475,7 +1479,7 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
 		session->latestUnconsumedWaitEvents = event->events;
-		ereport(DEBUG3, (errmsg("#########   ProcessWaitEventsV2  ########")));
+		ereport(DEBUG3, (errmsg("#########   ProcessWaitEventsV2, session->waitEventSetIndex:%d  ########", session->waitEventSetIndex)));
 		ConnectionStateMachineV2(session);
 	}
 }
