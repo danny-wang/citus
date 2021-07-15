@@ -830,13 +830,13 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
 			memset(session->columnValues, 0, columnCount * sizeof(Datum));
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  ########")));
 			memset(session->columnNulls, 0, columnCount * sizeof(bool));
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
 			memset(session->columeSizes, 0, columnCount * sizeof(int));
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(result, i, j))
@@ -854,7 +854,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					session->columnValues[j] = (Datum)value;
 				}
 				session->columeSizes[j] = PQgetlength(result,i,j);
-				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", (char *)session->columnValues[j],session->columnValues[j])));
+				//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", (char *)session->columnValues[j],session->columnValues[j])));
 			}
 			ereport(DEBUG3, (errmsg("44444")));
 			uint32 appendedColumnCount = 0;
@@ -871,7 +871,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				char *value = (char *)session->columnValues[columnIndex];
 				int size = session->columeSizes[columnIndex];
 				ereport(DEBUG3, (errmsg("44444@@@@@")));
-				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = session->columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (session->typeArray[columnIndex] == InvalidOid) {
