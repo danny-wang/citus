@@ -1565,6 +1565,11 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		// 	FreeWaitEventSet(execution->waitEventSet);
 		// 	execution->waitEventSet = NULL;
 		// }
+		if (execution->waitEventSet != NULL)
+		{
+			FreeWaitEventSet(execution->waitEventSet);
+			execution->waitEventSet = NULL;
+		}
 
 		PG_RE_THROW();
 	}
