@@ -1709,7 +1709,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 						ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
 						plan->writeBinarySignature = false;
-						plan->remoteTransaction.transactionState = REMOTE_TRANS_NOT_STARTED;
+						plan->transactionState = REMOTE_TRANS_NOT_STARTED;
 						plan->subPlan = subPlan;
 						plan->queryIndex = 0;
 						plan->rowsProcessed = 0;
