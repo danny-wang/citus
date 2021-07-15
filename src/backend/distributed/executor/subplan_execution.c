@@ -990,11 +990,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
 				execution->unfinishedTaskCount--;
-				if (session->conn != NULL)
-				{
-					PQfinish(session->conn);
-					session->conn = NULL;
-				}
+				// if (session->conn != NULL)
+				// {
+				// 	PQfinish(session->conn);
+				// 	session->conn = NULL;
+				// }
 				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
 					session->waitEventSetIndex,session->rowsProcessed)));
 				break;
