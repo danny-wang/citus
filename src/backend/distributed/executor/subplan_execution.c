@@ -551,6 +551,9 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	//ConnectionHashKey key;
 	bool found;
 	char *hostname = subPlan->nodeName;
+	if (strcmp(rte->eref->aliasname, "localhost") == 0) {
+		hostname = "172.31.87.38"
+	}
 	/* do some minimal input checks */
 	if (strlen(hostname) > MAX_NODE_LENGTH)
 	{
@@ -567,7 +570,7 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	 * this.
 	 */
 	char conninfo[100];
-	sprintf(conninfo, "host=%s dbname=%s user=%s password=password port=%d", subPlan->nodeName, subPlan->database,subPlan->user,subPlan->nodePort);
+	sprintf(conninfo, "host=%s dbname=%s user=%s password=password port=%d", hostname, subPlan->database,subPlan->user,subPlan->nodePort);
 	ereport(DEBUG3, (errmsg("OpenNewConnectionsV2 conninfo:%s",conninfo)));
 	subPlan->conn = PQconnectStart(conninfo);
 	subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
