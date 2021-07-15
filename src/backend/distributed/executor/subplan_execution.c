@@ -332,6 +332,7 @@ typedef struct SubPlanParallel {
 	PGconn *conn;
 	/* state of the connection */
 	MultiConnectionState connectionState;
+	RemoteTransactionState transactionState;
 	bool claimedExclusively;
 	/* signal that the connection is ready for read/write */
 	bool ioReady;
@@ -345,7 +346,7 @@ typedef struct SubPlanParallel {
 	/* events reported by the latest call to WaitEventSetWait */
 	int latestUnconsumedWaitEvents;
 	/* information about the associated remote transaction */
-	RemoteTransaction remoteTransaction;
+	//RemoteTransaction remoteTransaction;
 	void* subPlanParallelExecution;
 	bool writeBinarySignature;
 	int queryIndex;
@@ -647,7 +648,7 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	}
 	ereport(DEBUG3, (errmsg("1.3")));
 	UpdateConnectionWaitFlagsV2(session, waitFlags);
-	ereport(DEBUG3, (errmsg("1.4")));
+	ereport(DEBUG3, (errmsg("1.4,connectionReady:%d",connectionReady)));
 	/* don't consume input redundantly if we cycle back into CheckConnectionReady */
 	session->latestUnconsumedWaitEvents = 0;
 
@@ -758,7 +759,7 @@ StartSubPlanExecution(SubPlanParallel* session) {
 
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
-	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.1  ########")));
+	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.1  ,waitEventSetIndex:%d ########", session->waitEventSetIndex)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
 	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.2  ########")));
@@ -913,9 +914,9 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
 			session->rowsProcessed++;
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10  ########")));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10 ,rowsProcessed :%d ########",session->rowsProcessed)));
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-			ereport(DEBUG3, (errmsg("77777")));
+			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		PQclear(result);
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
@@ -934,13 +935,13 @@ TransactionStateMachineV2(SubPlanParallel* session)
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
 	// TransactionBlocksUsage useRemoteTransactionBlocks =
 	// 	execution->transactionProperties->useRemoteTransactionBlocks;
-	RemoteTransaction *transaction = &(session->remoteTransaction);
+	//RemoteTransaction *transaction = &(session->remoteTransaction);
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.3  ########")));
 	RemoteTransactionState currentState;
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
 	do {
 		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
-		currentState = transaction->transactionState;
+		currentState = session->transactionState;
 		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2  ########")));
 		if (!CheckConnectionReadyV2(session))
 		{
@@ -960,7 +961,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 					Assert(session->connectionState == MULTI_CONNECTION_LOST);
 					return;
 				}
-				transaction->transactionState = REMOTE_TRANS_SENT_COMMAND;
+				session->transactionState = REMOTE_TRANS_SENT_COMMAND;
 				UpdateConnectionWaitFlagsV2(session,
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
 				break;
@@ -980,7 +981,9 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				{
 					break;
 				}
-				transaction->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
+				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
+				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
+					session->waitEventSetIndex,session->rowsProcessed)));
 				break;
 			}
 			default:
@@ -989,7 +992,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 			}
 		}
 	}
-	while (transaction->transactionState != currentState);
+	while (session->transactionState != currentState);
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.9  ########")));
 }
 static void
