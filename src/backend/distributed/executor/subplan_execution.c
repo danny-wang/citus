@@ -627,26 +627,26 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	}
 
 	/* try to send all pending data */
-	// int sendStatus = PQflush(session->conn);
-	// if (sendStatus == -1)
-	// {
-	// 	session->connectionState = MULTI_CONNECTION_LOST;
-	// 	return false;
-	// }
-	// else if (sendStatus == 1)
-	// {
-	// 	/* more data to send, wait for socket to become writable */
-	// 	waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
-	// }
-	// ereport(DEBUG3, (errmsg("1.2")));
-	// if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
-	// {
-	// 	if (PQconsumeInput(session->conn) == 0)
-	// 	{
-	// 		session->connectionState = MULTI_CONNECTION_LOST;
-	// 		return false;
-	// 	}
-	// }
+	int sendStatus = PQflush(session->conn);
+	if (sendStatus == -1)
+	{
+		session->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
+	else if (sendStatus == 1)
+	{
+		/* more data to send, wait for socket to become writable */
+		waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
+	}
+	ereport(DEBUG3, (errmsg("1.2")));
+	if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
+	{
+		if (PQconsumeInput(session->conn) == 0)
+		{
+			session->connectionState = MULTI_CONNECTION_LOST;
+			return false;
+		}
+	}
 
 	if (!PQisBusy(session->conn))
 	{
