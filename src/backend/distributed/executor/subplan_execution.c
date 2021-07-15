@@ -841,7 +841,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			 */
 			if (messagePrimary == NULL)
 			{
-				messagePrimary = pchomp(PQerrorMessage(connection->pgConn));
+				messagePrimary = pchomp(PQerrorMessage(session->conn));
 			}
 	
 			ereport(ERROR, (errcode(sqlState), errmsg("%s", messagePrimary),
