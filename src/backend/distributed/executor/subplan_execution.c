@@ -333,6 +333,7 @@ typedef struct SubPlanParallel {
 	/* state of the connection */
 	MultiConnectionState connectionState;
 	RemoteTransactionState transactionState;
+	bool transactionFailed;
 	bool claimedExclusively;
 	/* signal that the connection is ready for read/write */
 	bool ioReady;
@@ -1143,9 +1144,9 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 
 				execution->unfinishedTaskCount--;
 				execution->failed = true;
-				RemoteTransaction *transaction = &subPlan->remoteTransaction;
+				//RemoteTransaction *transaction = &subPlan->remoteTransaction;
 
-				transaction->transactionFailed = true;
+				subPlan->transactionFailed = true;
 				if (execution->failed) {
 					/* a task has failed due to this connection failure */
 					//ReportConnectionError(connection, ERROR);
@@ -1222,11 +1223,11 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				 * relies on it and even if we're not inside a distributed transaction
 				 * we set the transaction state (e.g., REMOTE_TRANS_SENT_COMMAND).
 				 */
-				if (!subPlan->remoteTransaction.beginSent)
-				{
-					subPlan->remoteTransaction.transactionState =
-						REMOTE_TRANS_NOT_STARTED;
-				}
+				// if (!subPlan->beginSent)
+				// {
+				// 	subPlan->transactionState =
+				// 		REMOTE_TRANS_NOT_STARTED;
+				// }
 
 				break;
  			}
@@ -1710,6 +1711,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
 						plan->writeBinarySignature = false;
 						plan->transactionState = REMOTE_TRANS_NOT_STARTED;
+						plan->transactionFailed = false;
 						plan->subPlan = subPlan;
 						plan->queryIndex = 0;
 						plan->rowsProcessed = 0;
