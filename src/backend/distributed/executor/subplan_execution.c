@@ -351,7 +351,7 @@ typedef struct SubPlanParallel {
 	int queryIndex;
 	int commandsSent;
 	uint64 rowsProcessed;
-	char *columnValues; 
+	Datum *columnValues; 
 	bool *columnNulls; 
 	int *columeSizes; 
 	Oid *typeArray;
