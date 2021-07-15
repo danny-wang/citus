@@ -1772,7 +1772,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						}
 					}
 					//ereport(DEBUG3, (errmsg("####### 5")));
-					if (!useIntermediateResult && task->taskQuery.data.queryStringLazy != NULL) {
+					if (!useIntermediateResult && (task->taskQuery.queryType == TASK_QUERY_TEXT || task->taskQuery.queryType == TASK_QUERY_OBJECT)) {
 						//ereport(DEBUG3, (errmsg("####### 6")));
 						SubPlanParallel *plan = (SubPlanParallel*) palloc0(sizeof(SubPlanParallel));
 						if (CanUseBinaryCopyFormatForTargetList(customScan->scan.plan.targetlist)) {
@@ -1800,7 +1800,14 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						//elog_node_display(LOG, "ShardPlacement parse tree", en, Debug_pretty_print);
 						plan->nodeName = en->nodeName;
 						plan->nodePort = en->nodePort; 
-						plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
+						if (task->taskQuery.queryType == TASK_QUERY_TEXT) {
+							plan->queryStringLazy = task->taskQuery.data.queryStringLazy;
+						} else {
+							StringInfo subqueryString = makeStringInfo();
+							pg_get_query_def(task->taskQuery.data.jobQueryReferenceForLazyDeparsing, subqueryString);
+							plan->queryStringLazy = subqueryString->data;
+						}
+						ereport(DEBUG3, (errmsg("plan->queryStringLazy: %s",plan->queryStringLazy)));
 						//plan->connectionState = MULTI_CONNECTION_INITIAL;
 						//ereport(DEBUG3, (errmsg("####### 6.2")));
 						parallelJobList = lappend(parallelJobList, plan);
