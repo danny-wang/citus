@@ -798,7 +798,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  ########")));
 		if (session->writeBinarySignature == false) {
 			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
-			session->columnValues = palloc0(columnCount * sizeof(char));
+			session->columnValues = palloc0(columnCount * sizeof(Datum));
 			session->columnNulls = palloc0(columnCount * sizeof(bool));
 			session->columeSizes = palloc0(columnCount * sizeof(int));
 			session->typeArray = palloc0(columnCount * sizeof(Oid));
@@ -829,7 +829,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
-			memset(session->columnValues, 0, columnCount * sizeof(char));
+			memset(session->columnValues, 0, columnCount * sizeof(Datum));
 			memset(session->columnNulls, 0, columnCount * sizeof(bool));
 			memset(session->columeSizes, 0, columnCount * sizeof(int));
 			for (int j = 0; j < columnCount; j++){
@@ -846,10 +846,10 @@ ReceiveResultsV2(SubPlanParallel* session) {
 							ereport(ERROR, (errmsg("unexpected text result")));
 						}
 					}
-					session->columnValues[j] = value;
+					session->columnValues[j] = (Datum)value;
 				}
 				session->columeSizes[j] = PQgetlength(result,i,j);
-				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", session->columnValues[j],session->columnValues[j])));
+				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", (char *)session->columnValues[j],session->columnValues[j])));
 			}
 			ereport(DEBUG3, (errmsg("44444")));
 			uint32 appendedColumnCount = 0;
@@ -863,7 +863,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
 				ereport(DEBUG3, (errmsg("44444------")));
-				char *value = session->columnValues[columnIndex];
+				char *value = (char *)session->columnValues[columnIndex];
 				int size = session->columeSizes[columnIndex];
 				ereport(DEBUG3, (errmsg("44444@@@@@")));
 				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
