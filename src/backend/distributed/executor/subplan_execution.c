@@ -741,12 +741,12 @@ SendQuery(SubPlanParallel* session) {
 		session->connectionState = MULTI_CONNECTION_LOST;
 		return false;
 	}
-	// int singleRowMode = PQsetSingleRowMode(session->conn);
-	// if (singleRowMode == 0)
-	// {
-	// 	session->connectionState = MULTI_CONNECTION_LOST;
-	// 	return false;
-	// }
+	int singleRowMode = PQsetSingleRowMode(session->conn);
+	if (singleRowMode == 0)
+	{
+		session->connectionState = MULTI_CONNECTION_LOST;
+		return false;
+	}
 
 	return true;
 }
@@ -806,14 +806,14 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			session->queryIndex++;
 			continue;
 		}
-		// else if (resultStatus == PGRES_TUPLES_OK) {
-		// 	Assert(PQntuples(result) == 0);
-		// 	PQclear(result);
-		// 	session->queryIndex++;
-		// 	continue;
-		// }
-		// else if (resultStatus != PGRES_SINGLE_TUPLE)
-		else if (resultStatus != PGRES_TUPLES_OK)
+		else if (resultStatus == PGRES_TUPLES_OK) {
+			Assert(PQntuples(result) == 0);
+			PQclear(result);
+			session->queryIndex++;
+			continue;
+		}
+		else if (resultStatus != PGRES_SINGLE_TUPLE)
+		//else if (resultStatus != PGRES_TUPLES_OK)
 		{
 			session->queryIndex++;
 			ereport(DEBUG3, (errmsg("resultStatus != PGRES_TUPLES_OK, query:%s", session->queryStringLazy)));
