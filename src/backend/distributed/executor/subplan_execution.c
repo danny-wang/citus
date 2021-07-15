@@ -814,7 +814,45 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		}
 		else if (resultStatus != PGRES_SINGLE_TUPLE)
 		{
-			ereport(ERROR, (errmsg("resultStatus != PGRES_SINGLE_TUPLE")));
+			ereport(DEBUG3, (errmsg("resultStatus != PGRES_SINGLE_TUPLE, query:%s", session->queryStringLazy)));
+
+			char *sqlStateString = PQresultErrorField(result, PG_DIAG_SQLSTATE);
+			char *messagePrimary = PQresultErrorField(result, PG_DIAG_MESSAGE_PRIMARY);
+			char *messageDetail = PQresultErrorField(result, PG_DIAG_MESSAGE_DETAIL);
+			char *messageHint = PQresultErrorField(result, PG_DIAG_MESSAGE_HINT);
+			char *messageContext = PQresultErrorField(result, PG_DIAG_CONTEXT);
+	
+			char *nodeName = session->nodeName;
+			int nodePort = session->nodePort;
+			int sqlState = ERRCODE_INTERNAL_ERROR;
+	
+			if (sqlStateString != NULL)
+			{
+				sqlState = MAKE_SQLSTATE(sqlStateString[0],
+										 sqlStateString[1],
+										 sqlStateString[2],
+										 sqlStateString[3],
+										 sqlStateString[4]);
+			}
+	
+			/*
+			 * If the PGresult did not contain a message, the connection may provide a
+			 * suitable top level one. At worst, this is an empty string.
+			 */
+			if (messagePrimary == NULL)
+			{
+				messagePrimary = pchomp(PQerrorMessage(connection->pgConn));
+			}
+	
+			ereport(ERROR, (errcode(sqlState), errmsg("%s", messagePrimary),
+							 messageDetail ?
+							 errdetail("%s", ApplyLogRedaction(messageDetail)) : 0,
+							 messageHint ? errhint("%s", messageHint) : 0,
+							 messageContext ? errcontext("%s", messageContext) : 0,
+							 errcontext("while executing command on %s:%d",
+										nodeName, nodePort)));
+
+			
 		}
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
