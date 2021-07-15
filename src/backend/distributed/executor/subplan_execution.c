@@ -823,15 +823,20 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				/* No header extension */
 				CopySendInt32(copyOutState, zero);
 				WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);
+				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7, write binary header success ########")));
 			}
 			session->writeBinarySignature = true;
 		}
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
 			memset(session->columnValues, 0, columnCount * sizeof(Datum));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  ########")));
 			memset(session->columnNulls, 0, columnCount * sizeof(bool));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
 			memset(session->columeSizes, 0, columnCount * sizeof(int));
+			\ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(result, i, j))
