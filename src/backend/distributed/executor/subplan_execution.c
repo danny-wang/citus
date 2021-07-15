@@ -1780,7 +1780,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						} else {
 							plan->useBinaryCopyFormat = false;
 						}
-
+						elog_node_display(LOG, "task parse tree", task, Debug_pretty_print);
 						ereport(DEBUG3, (errmsg("plan->useBinaryCopyFormat: %d",plan->useBinaryCopyFormat)));
 						plan->writeBinarySignature = false;
 						plan->transactionState = REMOTE_TRANS_NOT_STARTED;
