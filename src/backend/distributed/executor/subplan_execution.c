@@ -340,6 +340,7 @@ typedef struct SubPlanParallel {
 	/* whether to wait for read/write */
 	int waitFlags;
 	bool runQuery;
+	bool queryDone;
 	/* time connection establishment was started, for timeout */
 	TimestampTz connectionStart;
 	/* index in the wait event set */
@@ -972,8 +973,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 			}
 			case REMOTE_TRANS_CLEARING_RESULTS: {
 				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.7  ########")));
-				UpdateConnectionWaitFlagsV2(session,
-										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+				// UpdateConnectionWaitFlagsV2(session,
+				// 						  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+				if (session->queryDone) {
+					break;
+				}
 				execution->unfinishedTaskCount--;
 				break;
 			}
@@ -985,6 +989,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 					break;
 				}
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
+				session->queryDone = true;
 				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
 					session->waitEventSetIndex,session->rowsProcessed)));
 				break;
@@ -1714,6 +1719,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->writeBinarySignature = false;
 						plan->transactionState = REMOTE_TRANS_NOT_STARTED;
 						plan->transactionFailed = false;
+						plan->queryDone = false;
 						plan->subPlan = subPlan;
 						plan->queryIndex = 0;
 						plan->rowsProcessed = 0;
