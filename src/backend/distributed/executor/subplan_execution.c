@@ -836,7 +836,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			memset(session->columnNulls, 0, columnCount * sizeof(bool));
 			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
 			memset(session->columeSizes, 0, columnCount * sizeof(int));
-			\ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(result, i, j))
