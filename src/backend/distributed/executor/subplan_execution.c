@@ -768,20 +768,20 @@ ReceiveResultsV2(SubPlanParallel* session) {
 	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.1  ,waitEventSetIndex:%d ########", session->waitEventSetIndex)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
-	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.2  ########")));
+	//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.2  ########")));
 	bool fetchDone = false;
 	while (!PQisBusy(session->conn))
 	{
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.3  ########")));
+		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.3  ########")));
 		uint32 columnIndex = 0;
 		uint32 rowsProcessed = 0;
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.4  ########")));
+		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.4  ########")));
 		PGresult *result = PQgetResult(session->conn);
 		if (result == NULL)
 		{
 			/* no more results, break out of loop and free allocated memory */
 			if (session->writeBinarySignature == false) {
-				ereport(DEBUG3, (errmsg("#########   result == NULL &&  session->writeBinarySignature == false ########")));
+				//ereport(DEBUG3, (errmsg("#########   result == NULL &&  session->writeBinarySignature == false ########")));
 				if (session->useBinaryCopyFormat) {
 					resetStringInfo(copyOutState->fe_msgbuf);
 					/* Signature */
@@ -791,7 +791,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					/* No header extension */
 					CopySendInt32(copyOutState, zero);
 					WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);
-					ereport(DEBUG3, (errmsg("#########   Rsession->writeBinarySignature == false, write binary header success ########")));
+					//ereport(DEBUG3, (errmsg("#########   Rsession->writeBinarySignature == false, write binary header success ########")));
 				}
 				session->writeBinarySignature = true;
 			}
@@ -799,7 +799,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			break;
 		}
 		ExecStatusType resultStatus = PQresultStatus(result);
-		ereport(DEBUG3, (errmsg("#########   resultStatus: %d  ########",resultStatus)));
+		ereport(DEBUG3, (errmsg("######### waitEventSetIndex:%d,  resultStatus: %d  ########",session->waitEventSetIndex, resultStatus)));
 		if (resultStatus == PGRES_COMMAND_OK)
 		{
 			PQclear(result);
@@ -818,9 +818,9 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		}
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  ########")));
+		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  ########")));
 		if (session->writeBinarySignature == false) {
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
 			session->columnValues = palloc0(columnCount * sizeof(Datum));
 			session->columnNulls = palloc0(columnCount * sizeof(bool));
 			session->columeSizes = palloc0(columnCount * sizeof(int));
@@ -835,7 +835,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				}
 				//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(result, columnIndex),PQftype(result,columnIndex))));
 			}
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7  ########")));
 			session->availableColumnCount = availableColumnCount;
 			if (session->useBinaryCopyFormat) {
 				resetStringInfo(copyOutState->fe_msgbuf);
@@ -846,11 +846,11 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				/* No header extension */
 				CopySendInt32(copyOutState, zero);
 				WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);
-				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7, write binary header success ########")));
+				//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.7, write binary header success ########")));
 			}
 			session->writeBinarySignature = true;
 		}
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
+		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
@@ -871,7 +871,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 
 					if (session->useBinaryCopyFormat){
 						if (PQfformat(result, j) == 0){
-							ereport(ERROR, (errmsg("unexpected text result")));
+							//ereport(ERROR, (errmsg("unexpected text result")));
 						}
 					}
 					session->columnValues[j] = (Datum)value;
@@ -879,21 +879,21 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				session->columeSizes[j] = PQgetlength(result,i,j);
 				//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", (char *)session->columnValues[j],session->columnValues[j])));
 			}
-			ereport(DEBUG3, (errmsg("44444")));
+			//ereport(DEBUG3, (errmsg("44444")));
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			
 			if (session->useBinaryCopyFormat)
 			{
-				ereport(DEBUG3, (errmsg("CopySendInt16")));
+				//ereport(DEBUG3, (errmsg("CopySendInt16")));
 				CopySendInt16(copyOutState, columnCount);
 			}
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-				ereport(DEBUG3, (errmsg("44444------")));
+				//ereport(DEBUG3, (errmsg("44444------")));
 				char *value = (char *)session->columnValues[columnIndex];
 				int size = session->columeSizes[columnIndex];
-				ereport(DEBUG3, (errmsg("44444@@@@@")));
+				//ereport(DEBUG3, (errmsg("44444@@@@@")));
 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = session->columnNulls[columnIndex];
 				bool lastColumn = false;
@@ -906,7 +906,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					}
 					else
 					{
-						ereport(DEBUG3, (errmsg("4.4")));
+						//ereport(DEBUG3, (errmsg("4.4")));
 						CopySendInt32(copyOutState, -1);
 					}
 				} else {
@@ -923,7 +923,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				}
 				appendedColumnCount++;
 			}
-			ereport(DEBUG3, (errmsg("55555")));
+			//ereport(DEBUG3, (errmsg("55555")));
 			if (!session->useBinaryCopyFormat)
 			{
 				/* append default line termination string depending on the platform */
@@ -933,17 +933,17 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
-			ereport(DEBUG3, (errmsg("66666")));
+			//ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
 			session->rowsProcessed++;
-			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10 ,rowsProcessed :%d ########",session->rowsProcessed)));
+			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10 ,rowsProcessed :%d ########",session->rowsProcessed)));
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 			//ereport(DEBUG3, (errmsg("77777")));
 		}
 		PQclear(result);
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
+		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
 	}
-	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
+	//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
 	return fetchDone;
 }
 /*
@@ -954,15 +954,15 @@ TransactionStateMachineV2(SubPlanParallel* session)
 {
 	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ,session->waitEventSetIndex:%d ########",session->waitEventSetIndex)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
 	// TransactionBlocksUsage useRemoteTransactionBlocks =
 	// 	execution->transactionProperties->useRemoteTransactionBlocks;
 	//RemoteTransaction *transaction = &(session->remoteTransaction);
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.3  ########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.3  ########")));
 	RemoteTransactionState currentState;
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
 	do {
-		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
+		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
 		currentState = session->transactionState;
 		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
 		if (!CheckConnectionReadyV2(session))
@@ -970,11 +970,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 			/* connection is busy, no state transitions to make */
 			break;
 		}
-		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.5  ########")));
+		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.5  ########")));
 		switch (currentState)
 		{
 			case REMOTE_TRANS_NOT_STARTED: {
-				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.6  ########")));
+				//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.6  ########")));
 				bool subPlanExecutionStarted =
 						StartSubPlanExecution(session);
 				if (!subPlanExecutionStarted)
@@ -986,13 +986,15 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				session->transactionState = REMOTE_TRANS_SENT_COMMAND;
 				UpdateConnectionWaitFlagsV2(session,
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
+				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d   set transactionState to  REMOTE_TRANS_SENT_COMMAND  ########",
+					session->waitEventSetIndex)));
 				break;
 			}
 			case REMOTE_TRANS_SENT_BEGIN:{
 				break;
 			}
 			case REMOTE_TRANS_CLEARING_RESULTS: {
-				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.7  ########")));
+				//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.7  ########")));
 				// UpdateConnectionWaitFlagsV2(session,
 				// 						  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
 				if (session->queryDone) {
@@ -1001,7 +1003,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				break;
 			}
 			case REMOTE_TRANS_SENT_COMMAND:{
-				ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.8  ########")));
+				//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.8  ########")));
 				bool fetchDone = ReceiveResultsV2(session);
 				if (!fetchDone)
 				{
@@ -1026,12 +1028,13 @@ TransactionStateMachineV2(SubPlanParallel* session)
 		}
 	}
 	while (session->transactionState != currentState);
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.9  ########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.9  ########")));
 }
 static void
 ConnectionStateMachineV2(SubPlanParallel* subPlan)
 {
-	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.1  ########")));
+	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.1  subPlan->waitEventSetIndex:%d , connectionState:%d   ########",
+		subPlan->waitEventSetIndex, subPlan->connectionState)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)subPlan->subPlanParallelExecution;
 	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.2########")));
 	MultiConnectionState currentState;
@@ -1083,13 +1086,13 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				} 
 				else if (status == CONNECTION_BAD)
 				{
-					ereport(DEBUG3, (errmsg("ConnStatusType status == CONNECTION_BAD")));
+					//ereport(DEBUG3, (errmsg("ConnStatusType status == CONNECTION_BAD")));
 					subPlan->connectionState = MULTI_CONNECTION_FAILED;
 					break;
 				}
 				int beforePollSocket = PQsocket(subPlan->conn);
 				PostgresPollingStatusType pollMode = PQconnectPoll(subPlan->conn);
-				ereport(DEBUG3, (errmsg("beforePollSocket = %d, pollMode = %d",beforePollSocket, pollMode)));
+				//ereport(DEBUG3, (errmsg("beforePollSocket = %d, pollMode = %d",beforePollSocket, pollMode)));
 				if (beforePollSocket != PQsocket(subPlan->conn))
 				{
 					ereport(DEBUG3, (errmsg("beforePollSocket != PQsocket(subPlan->conn)")));
@@ -1128,7 +1131,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				}
 				else
 				{  
-					ereport(DEBUG3, (errmsg("1.3")));
+					ereport(DEBUG3, (errmsg("1.4")));
 					execution->activeConnectionCount++;
 					execution->idleConnectionCount++;
 					ereport(DEBUG3, (errmsg("activeConnectionCount:%d, idleConnectionCount:%d",execution->activeConnectionCount,execution->idleConnectionCount)));
@@ -1140,7 +1143,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 						execution->waitFlagsChanged = true;
 					}
 					subPlan->connectionState = MULTI_CONNECTION_CONNECTED;
-					ereport(DEBUG3, (errmsg("set subPlan->connectionState to MULTI_CONNECTION_CONNECTED")));
+					ereport(DEBUG3, (errmsg("set subPlan->waitEventSetIndex:%d subPlan->connectionState to MULTI_CONNECTION_CONNECTED",subPlan->waitEventSetIndex)));
 					/* we should have a valid socket */
 					Assert(PQsocket(subPlan->conn) != -1);
 				}
