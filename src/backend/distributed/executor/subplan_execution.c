@@ -826,7 +826,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			}
 			session->writeBinarySignature = true;
 		}
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.8  ########")));
+		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
 			memset(session->columnValues, 0, columnCount * sizeof(char));
@@ -849,23 +849,24 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					session->columnValues[j] = value;
 				}
 				session->columeSizes[j] = PQgetlength(result,i,j);
+				ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  columnValues:%s, columeSizes:%d ########", session->columnValues[j],session->columnValues[j])));
 			}
-			//ereport(DEBUG3, (errmsg("44444")));
+			ereport(DEBUG3, (errmsg("44444")));
 			uint32 appendedColumnCount = 0;
 			resetStringInfo(copyOutState->fe_msgbuf);
 			
 			if (session->useBinaryCopyFormat)
 			{
-				//ereport(DEBUG3, (errmsg("CopySendInt16")));
+				ereport(DEBUG3, (errmsg("CopySendInt16")));
 				CopySendInt16(copyOutState, columnCount);
 			}
 			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.9  ########")));
 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-				//ereport(DEBUG3, (errmsg("44444------")));
+				ereport(DEBUG3, (errmsg("44444------")));
 				char *value = session->columnValues[columnIndex];
 				int size = session->columeSizes[columnIndex];
-				//ereport(DEBUG3, (errmsg("44444@@@@@")));
-				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+				ereport(DEBUG3, (errmsg("44444@@@@@")));
+				ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
 				bool isNull = session->columnNulls[columnIndex];
 				bool lastColumn = false;
 				if (session->typeArray[columnIndex] == InvalidOid) {
@@ -877,12 +878,11 @@ ReceiveResultsV2(SubPlanParallel* session) {
 					}
 					else
 					{
-						//ereport(DEBUG3, (errmsg("4.4")));
+						ereport(DEBUG3, (errmsg("4.4")));
 						CopySendInt32(copyOutState, -1);
 					}
 				} else {
 					if (!isNull) {
-						//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
 						CopyAttributeOutText(copyOutState, value);
 					} else {
 						CopySendString(copyOutState, copyOutState->null_print_client);
@@ -895,7 +895,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				}
 				appendedColumnCount++;
 			}
-			//ereport(DEBUG3, (errmsg("55555")));
+			ereport(DEBUG3, (errmsg("55555")));
 			if (!session->useBinaryCopyFormat)
 			{
 				/* append default line termination string depending on the platform */
@@ -905,12 +905,12 @@ ReceiveResultsV2(SubPlanParallel* session) {
 				CopySendString(copyOutState, "\r\n");
 		#endif
 			}
-			//ereport(DEBUG3, (errmsg("66666")));
+			ereport(DEBUG3, (errmsg("66666")));
 			WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);	
 			session->rowsProcessed++;
 			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.10  ########")));
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-			//ereport(DEBUG3, (errmsg("77777")));
+			ereport(DEBUG3, (errmsg("77777")));
 		}
 		PQclear(result);
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
