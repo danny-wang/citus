@@ -1050,11 +1050,11 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
 				execution->unfinishedTaskCount--;
-				if (session->conn != NULL)
-				{
-					PQfinish(session->conn);
-					session->conn = NULL;
-				}
+				// if (session->conn != NULL)
+				// {
+				// 	PQfinish(session->conn);
+				// 	session->conn = NULL;
+				// }
 				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
 					session->waitEventSetIndex,session->rowsProcessed)));
 				break;
@@ -1739,6 +1739,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 
 	// 1. find all independent subplans
 	TimestampTz startTimestamp = GetCurrentTimestamp();
+	long durationSeconds = 0.0;
+	int durationMicrosecs = 0;
+	
+	long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	const int fileFlags = (O_APPEND | O_CREAT | O_RDWR | O_TRUNC | PG_BINARY);
 	const int fileMode = (S_IRUSR | S_IWUSR);
 	List *sequenceJobList = NIL;
@@ -1837,15 +1841,22 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	{
 		session->subPlanParallelExecution = (void*)execution;
 	}
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG1, (errmsg("-------run splite subplan to parallel and sequence list time cost:%d" ,durationMillisecs)));
+
+	startTimestamp = GetCurrentTimestamp();
 	RunSubPlanParallelExecution(execution);
 	
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG1, (errmsg("-------run parallel query time cost:%d" ,durationMillisecs)));
 
 
-	long durationSeconds = 0.0;
-	int durationMicrosecs = 0;
-	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-	// 						&durationMicrosecs);
-	long durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 	// ereport(DEBUG3, (errmsg("-------run find all independent subplans time cost:%d" ,durationMillisecs)));
 	// ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
@@ -2594,5 +2605,5 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG3, (errmsg("-------run sequentially query time cost:%d" ,durationMillisecs)));
+	ereport(DEBUG1, (errmsg("-------run sequentially query time cost:%d" ,durationMillisecs)));
 }
