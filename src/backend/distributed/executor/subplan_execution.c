@@ -776,6 +776,21 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		if (result == NULL)
 		{
 			/* no more results, break out of loop and free allocated memory */
+			if (session->writeBinarySignature == false) {
+				ereport(DEBUG3, (errmsg("#########   result == NULL &&  session->writeBinarySignature == false ########")));
+				if (session->useBinaryCopyFormat) {
+					resetStringInfo(copyOutState->fe_msgbuf);
+					/* Signature */
+					CopySendData(copyOutState, BinarySignature, 11);
+					/* Flags field (no OIDs) */
+					CopySendInt32(copyOutState, zero);
+					/* No header extension */
+					CopySendInt32(copyOutState, zero);
+					WriteToLocalFile(copyOutState->fe_msgbuf, &session->fc);
+					ereport(DEBUG3, (errmsg("#########   Rsession->writeBinarySignature == false, write binary header success ########")));
+				}
+				session->writeBinarySignature = true;
+			}
 			fetchDone = true;
 			break;
 		}
