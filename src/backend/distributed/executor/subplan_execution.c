@@ -51,6 +51,7 @@
 #include "storage/fd.h"
 #include "storage/latch.h"
 #include <stdio.h>
+#include <sys/select.h>
 /* ------------- danny test end ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
@@ -64,11 +65,21 @@ static const char BinarySignature[11] = "PGCOPY\n\377\r\n\0";
 const char *delimiterCharacter = "\t";
 const char *nullPrintCharacter = "\\N";
 const int32 zero = 0;
-long getTimeUsec()
+long long getTimeMilliseconds()
 {
-    struct timeval t;
-    gettimeofday(&t, 0);
-    return (long)((long)t.tv_sec * 1000 * 1000 + t.tv_usec);
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return ((long long)tv.tv_sec) * 1000 + ((long long)tv.tv_usec) / 1000;
+}
+static void sleep_ms(unsigned int secs)
+{
+    struct timeval tval;
+
+    tval.tv_sec=secs/1000;
+
+    tval.tv_usec=(secs*1000)%1000000;
+
+    select(0,NULL,NULL,NULL,&tval);
 }
 // typedef struct runSubPlanParallelPara {
 // 	DistributedSubPlan *subPlan;
@@ -343,6 +354,10 @@ typedef struct SubPlanParallel {
 	bool queryDone;
 	/* time connection establishment was started, for timeout */
 	TimestampTz connectionStart;
+	long connectReadyTimeCost;
+	long sendQueryTimeCost;
+	long queryDoneTimeCost;
+	long writeToLocalFileTimeCost;
 	/* index in the wait event set */
 	int waitEventSetIndex;
 	/* events reported by the latest call to WaitEventSetWait */
@@ -575,6 +590,7 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	ereport(DEBUG3, (errmsg("OpenNewConnectionsV2 conninfo:%s",conninfo)));
 	subPlan->conn = PQconnectStart(conninfo);
 	subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
+	subPlan->connectionStart = GetCurrentTimestamp();
 	/*
 	 * Ensure that subsequent calls to StartNodeUserDatabaseConnection get a
 	 * different connection.
@@ -615,7 +631,7 @@ UpdateConnectionWaitFlagsV2(SubPlanParallel* session, int waitFlags)
 static bool
 CheckConnectionReadyV2(SubPlanParallel* session)
 {
-	ereport(DEBUG3, (errmsg("1.1")));
+	//ereport(DEBUG3, (errmsg("1.1")));
 	int waitFlags = WL_SOCKET_READABLE;
 	bool connectionReady = false;
 
@@ -638,7 +654,7 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 		/* more data to send, wait for socket to become writable */
 		waitFlags = waitFlags | WL_SOCKET_WRITEABLE;
 	}
-	ereport(DEBUG3, (errmsg("1.2")));
+	//ereport(DEBUG3, (errmsg("1.2")));
 	if ((session->latestUnconsumedWaitEvents & WL_SOCKET_READABLE) != 0)
 	{
 		if (PQconsumeInput(session->conn) == 0)
@@ -652,9 +668,9 @@ CheckConnectionReadyV2(SubPlanParallel* session)
 	{
 		connectionReady = true;
 	}
-	ereport(DEBUG3, (errmsg("1.3")));
+	//ereport(DEBUG3, (errmsg("1.3")));
 	UpdateConnectionWaitFlagsV2(session, waitFlags);
-	ereport(DEBUG3, (errmsg("1.4,connectionReady:%d",connectionReady)));
+	//ereport(DEBUG3, (errmsg("1.4,connectionReady:%d",connectionReady)));
 	/* don't consume input redundantly if we cycle back into CheckConnectionReady */
 	session->latestUnconsumedWaitEvents = 0;
 
@@ -741,12 +757,12 @@ SendQuery(SubPlanParallel* session) {
 		session->connectionState = MULTI_CONNECTION_LOST;
 		return false;
 	}
-	int singleRowMode = PQsetSingleRowMode(session->conn);
-	if (singleRowMode == 0)
-	{
-		session->connectionState = MULTI_CONNECTION_LOST;
-		return false;
-	}
+	// int singleRowMode = PQsetSingleRowMode(session->conn);
+	// if (singleRowMode == 0)
+	// {
+	// 	session->connectionState = MULTI_CONNECTION_LOST;
+	// 	return false;
+	// }
 
 	return true;
 }
@@ -759,24 +775,35 @@ StartSubPlanExecution(SubPlanParallel* session) {
 	{
 		session->commandsSent++;
 	}
+	long durationSeconds = 0.0;
+	int durationMicrosecs = 0;
+	long durationMillisecs = 0.0;
+	TimestampDifference(session->connectionStart, GetCurrentTimestamp(), &durationSeconds,
+			&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	session->sendQueryTimeCost = durationMillisecs;
 	return querySent;
 }
 
 
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
-	ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.1  ,waitEventSetIndex:%d ########", session->waitEventSetIndex)));
+	ereport(DEBUG1, (errmsg("subPlanId:%d, walk into ReceiveResultsV2", session->subPlan->subPlanId)));
+				
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
 	//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.2  ########")));
 	bool fetchDone = false;
 	while (!PQisBusy(session->conn))
 	{
+	//do {
 		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.3  ########")));
 		uint32 columnIndex = 0;
 		uint32 rowsProcessed = 0;
 		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.4  ########")));
 		PGresult *result = PQgetResult(session->conn);
+		TimestampTz startTimestamp = GetCurrentTimestamp();
 		if (result == NULL)
 		{
 			/* no more results, break out of loop and free allocated memory */
@@ -797,26 +824,28 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			}
 			fetchDone = true;
 			break;
+			//return fetchDone;
 		}
 		ExecStatusType resultStatus = PQresultStatus(result);
-		ereport(DEBUG3, (errmsg("######### waitEventSetIndex:%d,  resultStatus: %d  ########",session->waitEventSetIndex, resultStatus)));
+		//ereport(DEBUG3, (errmsg("######### waitEventSetIndex:%d,  resultStatus: %d  ########",session->waitEventSetIndex, resultStatus)));
 		if (resultStatus == PGRES_COMMAND_OK)
 		{
 			PQclear(result);
 			session->queryIndex++;
 			continue;
+			//return fetchDone;
 		}
-		else if (resultStatus == PGRES_TUPLES_OK) {
-			Assert(PQntuples(result) == 0);
-			PQclear(result);
-			session->queryIndex++;
-			continue;
-		}
-		else if (resultStatus != PGRES_SINGLE_TUPLE)
-		//else if (resultStatus != PGRES_TUPLES_OK)
+		// else if (resultStatus == PGRES_TUPLES_OK) {
+		// 	Assert(PQntuples(result) == 0);
+		// 	PQclear(result);
+		// 	session->queryIndex++;
+		// 	continue;
+		// }
+		//else if (resultStatus != PGRES_SINGLE_TUPLE)
+		else if (resultStatus != PGRES_TUPLES_OK)
 		{
 			session->queryIndex++;
-			ereport(DEBUG3, (errmsg("resultStatus != PGRES_TUPLES_OK, query:%s", session->queryStringLazy)));
+			//ereport(DEBUG3, (errmsg("resultStatus != PGRES_TUPLES_OK, query:%s", session->queryStringLazy)));
 
 			char *sqlStateString = PQresultErrorField(result, PG_DIAG_SQLSTATE);
 			char *messagePrimary = PQresultErrorField(result, PG_DIAG_MESSAGE_PRIMARY);
@@ -856,8 +885,10 @@ ReceiveResultsV2(SubPlanParallel* session) {
 
 			
 		}
+		session->queryIndex++;
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
+
 		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  rowsProcessed: %d ########",rowsProcessed)));
 		if (session->writeBinarySignature == false) {
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
@@ -896,13 +927,6 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0  rowsProcessed：%d ########", rowsProcessed)));
 		for (int i = 0; i < rowsProcessed; i++)
 		{
-			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.0.0  ########")));
-			//memset(session->columnValues, 0, columnCount * sizeof(Datum));
-			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.1  ########")));
-			//memset(session->columnNulls, 0, columnCount * sizeof(bool));
-			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.2  ########")));
-			//memset(session->columeSizes, 0, columnCount * sizeof(int));
-			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  2.3  ########")));
 			for (int j = 0; j < columnCount; j++){
 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
 				if (PQgetisnull(result, i, j))
@@ -983,9 +1007,18 @@ ReceiveResultsV2(SubPlanParallel* session) {
 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
 			//ereport(DEBUG3, (errmsg("77777")));
 		}
+		long durationSeconds = 0.0;
+		int durationMicrosecs = 0;
+		long durationMillisecs = 0.0;
+		TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+						&durationMicrosecs);
+		durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+		durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+		session->writeToLocalFileTimeCost += durationMillisecs;
 		PQclear(result);
 		//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.11  ########")));
 	}
+	//} while (!PQisBusy(session->conn));
 	//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.12  ########")));
 	return fetchDone;
 }
@@ -995,7 +1028,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 static void
 TransactionStateMachineV2(SubPlanParallel* session)
 {
-	ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ,session->waitEventSetIndex:%d ########",session->waitEventSetIndex)));
+	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.1  ,session->waitEventSetIndex:%d ########",session->waitEventSetIndex)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.2  ########")));
 	// TransactionBlocksUsage useRemoteTransactionBlocks =
@@ -1007,10 +1040,16 @@ TransactionStateMachineV2(SubPlanParallel* session)
 	do {
 		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
 		currentState = session->transactionState;
-		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
+		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
 		if (!CheckConnectionReadyV2(session))
 		{
 			/* connection is busy, no state transitions to make */
+			// if (currentState == REMOTE_TRANS_SENT_COMMAND && session->connectionState != MULTI_CONNECTION_LOST) {
+			// 	ereport(DEBUG1, (errmsg("subPlanId:%d, currentState == REMOTE_TRANS_SENT_COMMAND && session->connectionState != MULTI_CONNECTION_LOST", session->subPlan->subPlanId)));
+			// 	;
+			// } else {
+			// 	break;
+			// }
 			break;
 		}
 		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.5  ########")));
@@ -1029,8 +1068,8 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				session->transactionState = REMOTE_TRANS_SENT_COMMAND;
 				UpdateConnectionWaitFlagsV2(session,
 										  WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
-				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d   set transactionState to  REMOTE_TRANS_SENT_COMMAND  ########",
-					session->waitEventSetIndex)));
+				// ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d   set transactionState to  REMOTE_TRANS_SENT_COMMAND  ########",
+				// 	session->waitEventSetIndex)));
 				break;
 			}
 			case REMOTE_TRANS_SENT_BEGIN:{
@@ -1052,16 +1091,29 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				{
 					break;
 				}
+				long durationSeconds = 0.0;
+				int durationMicrosecs = 0;
+				long durationMillisecs = 0.0;
+				TimestampDifference(session->connectionStart, GetCurrentTimestamp(), &durationSeconds,
+						&durationMicrosecs);
+				durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+				durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+				session->queryDoneTimeCost = durationMillisecs;
+				ereport(DEBUG1, (errmsg("-------subplan %d run query startConnectionTime:%s, connectionReadyTimeCode:%ld, sendQueryTimeCost:%ld, queryDoneTimeCost:%ld, rowsProcessed:%d, queryIndex:%d, writeToLocalFileTimeCost:%d", 
+				 	session->subPlan->subPlanId, timestamptz_to_str(session->connectionStart), session->connectReadyTimeCost,
+				 	session->sendQueryTimeCost, session->queryDoneTimeCost, session->rowsProcessed, session->queryIndex,
+				 	session->writeToLocalFileTimeCost)));
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
 				execution->unfinishedTaskCount--;
+
 				// if (session->conn != NULL)
 				// {
 				// 	PQfinish(session->conn);
 				// 	session->conn = NULL;
 				// }
-				ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
-					session->waitEventSetIndex,session->rowsProcessed)));
+				// ereport(DEBUG3, (errmsg("######### session->waitEventSetIndex:%d session->rowsProcessed:%d  set transactionState to  REMOTE_TRANS_CLEARING_RESULTS  ########",
+				// 	session->waitEventSetIndex,session->rowsProcessed)));
 				break;
 			}
 			default:
@@ -1076,26 +1128,26 @@ TransactionStateMachineV2(SubPlanParallel* session)
 static void
 ConnectionStateMachineV2(SubPlanParallel* subPlan)
 {
-	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.1  subPlan->waitEventSetIndex:%d , connectionState:%d   ########",
-		subPlan->waitEventSetIndex, subPlan->connectionState)));
+	// ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.1  subPlan->waitEventSetIndex:%d , connectionState:%d   ########",
+	// 	subPlan->waitEventSetIndex, subPlan->connectionState)));
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)subPlan->subPlanParallelExecution;
-	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.2########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.2########")));
 	MultiConnectionState currentState;
-	ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.3########")));
+	//ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.3########")));
 	do {
 		currentState = subPlan->connectionState;
 		switch (currentState)
 		{
 			case MULTI_CONNECTION_INITIAL:
 			{
-				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_INITIAL")));
+				//ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_INITIAL")));
 				/* simply iterate the state machine */
 				subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
 				break;
 			}
 			case MULTI_CONNECTION_TIMED_OUT:
 			{
-				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_TIMED_OUT")));
+				//ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_TIMED_OUT")));
 				/*
 				 * When the connection timeout happens, the connection
 				 * might still be able to successfuly established. However,
@@ -1109,11 +1161,11 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 			}
 			case MULTI_CONNECTION_CONNECTING:
 			{
-				ereport(DEBUG3, (errmsg("MULTI_CONNECTION_INITIAL:   MULTI_CONNECTION_CONNECTING")));
 				ConnStatusType status = PQstatus(subPlan->conn);
+				//ereport(DEBUG1, (errmsg("ConnectionStateMachineV2:   MULTI_CONNECTION_CONNECTING, PQstatus: %d", status)));
 				if (status == CONNECTION_OK)
 				{
-					ereport(DEBUG3, (errmsg("ConnStatusType status == CONNECTION_OK")));
+					ereport(DEBUG1, (errmsg("subplan: %d ,ConnStatusType status == CONNECTION_OK", subPlan->subPlan->subPlanId)));
 
 					execution->activeConnectionCount++;
 					execution->idleConnectionCount++;
@@ -1138,19 +1190,20 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				//ereport(DEBUG3, (errmsg("beforePollSocket = %d, pollMode = %d",beforePollSocket, pollMode)));
 				if (beforePollSocket != PQsocket(subPlan->conn))
 				{
-					ereport(DEBUG3, (errmsg("beforePollSocket != PQsocket(subPlan->conn)")));
+					//ereport(DEBUG3, (errmsg("beforePollSocket != PQsocket(subPlan->conn)")));
 					/* rebuild the wait events if PQconnectPoll() changed the socket */
 					execution->rebuildWaitEventSet = true;
 				}
 
 				if (pollMode == PGRES_POLLING_FAILED)
 				{
-					ereport(DEBUG3, (errmsg("1.1")));
+					//ereport(DEBUG3, (errmsg("1.1")));
 					subPlan->connectionState = MULTI_CONNECTION_FAILED;
 				}
 				else if (pollMode == PGRES_POLLING_READING)
 				{
-					ereport(DEBUG3, (errmsg("1.2")));
+					//sleep_ms(10);
+					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_READING", subPlan->subPlan->subPlanId)));
 					if (subPlan->waitFlags == WL_SOCKET_READABLE) {
 						;
 					} else {
@@ -1162,7 +1215,8 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				}
 				else if (pollMode == PGRES_POLLING_WRITING)
 				{
-					ereport(DEBUG3, (errmsg("1.3")));
+					//sleep_ms(10);
+					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_WRITING", subPlan->subPlan->subPlanId)));
 					if (subPlan->waitFlags == WL_SOCKET_WRITEABLE) {
 						;
 					} else {
@@ -1174,19 +1228,37 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				}
 				else
 				{  
-					ereport(DEBUG3, (errmsg("1.4")));
+					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_OK", subPlan->subPlan->subPlanId)));
+					long durationSeconds = 0.0;
+					int durationMicrosecs = 0;
+					long durationMillisecs = 0.0;
+					TimestampDifference(subPlan->connectionStart, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+					durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+					durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+					subPlan->connectReadyTimeCost = durationMillisecs;
+					//ereport(DEBUG3, (errmsg("1.4")));
 					execution->activeConnectionCount++;
 					execution->idleConnectionCount++;
-					ereport(DEBUG3, (errmsg("activeConnectionCount:%d, idleConnectionCount:%d",execution->activeConnectionCount,execution->idleConnectionCount)));
+					//ereport(DEBUG3, (errmsg("activeConnectionCount:%d, idleConnectionCount:%d",execution->activeConnectionCount,execution->idleConnectionCount)));
 					if (subPlan->waitFlags == (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE)) {
 						;
 					} else {
 						subPlan->waitFlags = (WL_SOCKET_READABLE | WL_SOCKET_WRITEABLE);
-						/* without signalling the execution, the flag changes won't be reflected */
+					// 	 without signalling the execution, the flag changes won't be reflected 
 						execution->waitFlagsChanged = true;
 					}
 					subPlan->connectionState = MULTI_CONNECTION_CONNECTED;
-					ereport(DEBUG3, (errmsg("set subPlan->waitEventSetIndex:%d subPlan->connectionState to MULTI_CONNECTION_CONNECTED",subPlan->waitEventSetIndex)));
+
+					// if (subPlan->waitFlags == (WL_SOCKET_READABLE)) {
+					// 	;
+					// } else {
+					// 	subPlan->waitFlags = (WL_SOCKET_READABLE);
+						/* without signalling the execution, the flag changes won't be reflected */
+					// 	execution->waitFlagsChanged = true;
+					// }
+					// subPlan->connectionState = MULTI_CONNECTION_CONNECTED;
+					//ereport(DEBUG3, (errmsg("set subPlan->waitEventSetIndex:%d subPlan->connectionState to MULTI_CONNECTION_CONNECTED",subPlan->waitEventSetIndex)));
 					/* we should have a valid socket */
 					Assert(PQsocket(subPlan->conn) != -1);
 				}
@@ -1361,11 +1433,11 @@ BuildWaitEventSetV2(List *sessionList)
 		int sock = PQsocket(session->conn);
 		if (sock == -1)
 		{
-			ereport(DEBUG3, (errmsg("@@@@@@  sock == -1   @@@@@@@@@")));
+			ereport(ERROR, (errmsg("@@@@@@  sock == -1   @@@@@@@@@")));
 			/* connection was closed */
 			continue;
 		}
-		ereport(DEBUG3, (errmsg("@@@@@@  AddWaitEventToSet   @@@@@@@@@")));
+		//ereport(DEBUG3, (errmsg("@@@@@@  AddWaitEventToSet   @@@@@@@@@")));
 		int waitEventSetIndex = AddWaitEventToSet(waitEventSet, session->waitFlags,
 												  sock, NULL, (void *) session);
 		session->waitEventSetIndex = waitEventSetIndex;
@@ -1479,7 +1551,7 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
 		session->latestUnconsumedWaitEvents = event->events;
-		ereport(DEBUG3, (errmsg("#########   ProcessWaitEventsV2, session->waitEventSetIndex:%d  ########", session->waitEventSetIndex)));
+		ereport(DEBUG1, (errmsg("#########   ProcessWaitEventsV2, subPlanId:%d ,  events:%d ########", session->subPlan->subPlanId, event->events)));
 		ConnectionStateMachineV2(session);
 	}
 }
@@ -1503,10 +1575,12 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		int eventSetSize = GetEventSetSizeV2(execution->parallelTaskList);
 		/* always (re)build the wait event set the first time */
 		execution->rebuildWaitEventSet = true;
-		ereport(DEBUG3, (errmsg("#########   SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+		//ereport(DEBUG3, (errmsg("#########   SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+		int whileLoopTime = 0 ;
 		while (execution->unfinishedTaskCount > 0 && !cancellationReceived)
 		{
-			ereport(DEBUG3, (errmsg("#########  in while loop SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+			//ereport(DEBUG3, (errmsg("#########  in while loop SubPlanParallelExecution-> unfinishedTaskCount :%d ########",execution->unfinishedTaskCount)));
+			whileLoopTime++;
 			if (execution->rebuildWaitEventSet)
 			{
 				if (events != NULL)
@@ -1529,8 +1603,12 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			long timeout = 2000;
 			int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
 											  eventSetSize, WAIT_EVENT_CLIENT_READ);
+			ereport(DEBUG1, (errmsg("#########  eventCount :%d ########", eventCount)));
+			// int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
+			// 								  eventSetSize, WAIT_EVENT_CLIENT_READ);
 			ProcessWaitEventsV2(execution, events, eventCount, &cancellationReceived);
 		}
+		ereport(DEBUG1, (errmsg("#########  whileLoopTime :%d ########", whileLoopTime)));
 		if (events != NULL)
 		{
 			pfree(events);
@@ -1749,6 +1827,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// return;
 
 	// 1. find all independent subplans
+	long long startTime = getTimeMilliseconds();
 	TimestampTz startTimestamp = GetCurrentTimestamp();
 	long durationSeconds = 0.0;
 	int durationMicrosecs = 0;
@@ -1806,6 +1885,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->rowsProcessed = 0;
 						plan->commandsSent = 0;
 						plan->fileName = QueryResultFileName(resultId);
+						plan->writeToLocalFileTimeCost = 0;
 						CreateIntermediateResultsDirectory();
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
 																				 fileFlags,
@@ -1852,310 +1932,62 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	{
 		session->subPlanParallelExecution = (void*)execution;
 	}
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
+	}
 	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG1, (errmsg("-------run splite subplan to parallel and sequence list time cost:%d" ,durationMillisecs)));
+	ereport(DEBUG1, (errmsg("-------start time: %lld, run splite subplan to parallel and sequence list time cost:%d" , startTime, durationMillisecs)));
 
-	// startTimestamp = GetCurrentTimestamp();
-	// RunSubPlanParallelExecution(execution);
+	startTimestamp = GetCurrentTimestamp();
+	startTime = getTimeMilliseconds();
+
+	RunSubPlanParallelExecution(execution);
 	
+	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	ereport(DEBUG1, (errmsg("-------start time: %lld, run parallel query time cost:%d", startTime, durationMillisecs)));
+	
+	
+	// 2. run these independent subplans parallel
+	// startTimestamp = GetCurrentTimestamp();
+	// SubPlanParallel* pSubPlan = NULL;
+	// foreach_ptr(pSubPlan, parallelJobList) {
+	// 	char conninfo[100];
+	// 	sprintf(conninfo, "host=%s dbname=postgres user=postgres password=password port=%d", pSubPlan->nodeName, pSubPlan->nodePort);
+	// 	ereport(DEBUG3, (errmsg("conninfo:%s",conninfo)));
+	// 	pSubPlan->conn = PQconnectStart(conninfo);
+	// 	ConnStatusType  ConnType = PQstatus(pSubPlan->conn);
+	// 	ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
+	// 	if (CONNECTION_BAD == ConnType) {
+	// 		ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
+	// 		return;
+	// 	}
+	// 	PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
+	// 	while (true)
+	// 	{
+	// 		polltype = PQconnectPoll(pSubPlan->conn);
+	// 		if (polltype == PGRES_POLLING_FAILED) {
+	// 			ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
+	// 			return;
+	// 		}
+	// 		if (polltype == PGRES_POLLING_OK)
+	// 			break;
+	// 	}
+	// 	int rc1 = PQsendQueryParams(pSubPlan->conn, pSubPlan->queryStringLazy, 0, NULL,
+	// 						   NULL, NULL, NULL, 1);
+	// }
+	// ereport(DEBUG3, (errmsg("create connection and send query success")));
 	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
 	// 						&durationMicrosecs);
 	// durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	// ereport(DEBUG1, (errmsg("-------run parallel query time cost:%d" ,durationMillisecs)));
+	// ereport(DEBUG3, (errmsg("-------create connection and send query time cost:%d" ,durationMillisecs)));
 
-
-	// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	// ereport(DEBUG3, (errmsg("-------run find all independent subplans time cost:%d" ,durationMillisecs)));
-	ereport(DEBUG3, (errmsg("parallelJobList num:%d  sequenceJobList num:%d",list_length(parallelJobList),list_length(sequenceJobList))));
-	// 2. run these independent subplans parallel
-	//WaitEvent *events = NULL;
-	startTimestamp = GetCurrentTimestamp();
-	SubPlanParallel* pSubPlan = NULL;
-	foreach_ptr(pSubPlan, parallelJobList) {
-		char conninfo[100];
-		sprintf(conninfo, "host=%s dbname=postgres user=postgres password=password port=%d", pSubPlan->nodeName, pSubPlan->nodePort);
-		ereport(DEBUG3, (errmsg("conninfo:%s",conninfo)));
-		pSubPlan->conn = PQconnectStart(conninfo);
-		ConnStatusType  ConnType = PQstatus(pSubPlan->conn);
-		ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
-		if (CONNECTION_BAD == ConnType) {
-			ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
-			return;
-		}
-		PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
-		while (true)
-		{
-			polltype = PQconnectPoll(pSubPlan->conn);
-			if (polltype == PGRES_POLLING_FAILED) {
-				ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
-				return;
-			}
-			if (polltype == PGRES_POLLING_OK)
-				break;
-		}
-		int rc1 = PQsendQueryParams(pSubPlan->conn, pSubPlan->queryStringLazy, 0, NULL,
-							   NULL, NULL, NULL, 1);
-	}
-	ereport(DEBUG3, (errmsg("create connection and send query success")));
-	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-							&durationMicrosecs);
-	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG3, (errmsg("-------create connection and send query time cost:%d" ,durationMillisecs)));
-
-	CopyOutState copyOutState1 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
-	copyOutState1->delim = (char *) delimiterCharacter;
-	copyOutState1->null_print = (char *) nullPrintCharacter;
-	copyOutState1->null_print_client = (char *) nullPrintCharacter;
-	//copyOutState1->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
-	copyOutState1->binary = true;
-	copyOutState1->fe_msgbuf = makeStringInfo();
-	copyOutState1->need_transcoding = false;
-	startTimestamp = GetCurrentTimestamp();
-	foreach_ptr(pSubPlan, parallelJobList) {
-		PGresult   *res1;
-		res1 = PQgetResult(pSubPlan->conn);
-		int columnCount = PQnfields(res1);
-		int availableColumnCount = 0;
-		Oid *typeArray = palloc0(columnCount * sizeof(Oid));
-		// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
-		for (int columnIndex = 0; columnIndex < columnCount; columnIndex++) {
-			typeArray[columnIndex] = PQftype(res1,columnIndex);
-			if (typeArray[columnIndex] != InvalidOid) {
-				availableColumnCount++;
-			}
-			//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(res1, columnIndex),PQftype(res1,columnIndex))));
-		}
-
-		//FmgrInfo *fi = NULL;
-		//CopyCoercionData *ccd = NULL;
-		CopyOutState copyOutState = copyOutState1;
-		resetStringInfo(copyOutState->fe_msgbuf);
-		/* Signature */
-		CopySendData(copyOutState, BinarySignature, 11);
-	
-		/* Flags field (no OIDs) */
-		CopySendInt32(copyOutState, zero);
-	
-		/* No header extension */
-		CopySendInt32(copyOutState, zero);
-		WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);
-		while (true)
-		{
-			//ereport(DEBUG3, (errmsg("+++++++++columnCount:%d, columnCount:%d",columnCount,columnCount)));
-			ereport(DEBUG3, (errmsg("walk into while (true) 1")));
-			if (!res1)
-				break;
-			// write to local file
-			ereport(DEBUG3, (errmsg("PQntuples:%d",PQntuples(res1))));
-			for (int i = 0; i < PQntuples(res1); i++)
-			{
-				Datum *columnValues = palloc0(columnCount * sizeof(Datum));
-				bool *columnNulls = palloc0(columnCount * sizeof(bool));
-				int *columeSizes = palloc0(columnCount * sizeof(int));
-				memset(columnValues, 0, columnCount * sizeof(Datum));
-				memset(columnNulls, 0, columnCount * sizeof(bool));
-				memset(columeSizes, 0, columnCount * sizeof(int));
-				for (int j = 0; j < columnCount; j++){
-					//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
-					if (PQgetisnull(res1, i, j))
-					{
-						columnValues[j] = NULL;
-						columnNulls[j] = true;
-					}else {
-						char *value = PQgetvalue(res1, i, j);
-						if (copyOutState->binary){
-							if (PQfformat(res1, j) == 0){
-								ereport(ERROR, (errmsg("unexpected text result")));
-							}
-						}
-						columnValues[j] = (Datum)value;
-					}
-					columeSizes[j] = PQgetlength(res1,i,j);
-				}
-				//ereport(DEBUG3, (errmsg("44444")));
-				uint32 appendedColumnCount = 0;
-				resetStringInfo(copyOutState->fe_msgbuf);
-				bool binary = true;
-				if (copyOutState->binary)
-				{
-					//ereport(DEBUG3, (errmsg("CopySendInt16")));
-					CopySendInt16(copyOutState, columnCount);
-				}
-				for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-					//ereport(DEBUG3, (errmsg("44444------")));
-					Datum value = columnValues[columnIndex];
-					int size = columeSizes[columnIndex];
-					//ereport(DEBUG3, (errmsg("44444@@@@@")));
-					//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
-					bool isNull = columnNulls[columnIndex];
-					bool lastColumn = false;
-					if (typeArray[columnIndex] == InvalidOid) {
-						continue;
-					} else if (binary) {
-						if (!isNull) {
-							CopySendInt32(copyOutState, size);
-							CopySendData(copyOutState, (char *)value, size);
-						}
-						else
-						{
-							//ereport(DEBUG3, (errmsg("4.4")));
-							CopySendInt32(copyOutState, -1);
-						}
-					} else {
-						if (!isNull) {
-							//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-							CopyAttributeOutText(copyOutState, (char *)value);
-						} else {
-							CopySendString(copyOutState, copyOutState->null_print_client);
-						}
-						lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
-						if (!lastColumn){
-							CopySendChar(copyOutState, copyOutState->delim[0]);
-						}
-	
-					}
-					appendedColumnCount++;
-				}
-				//ereport(DEBUG3, (errmsg("55555")));
-				if (!copyOutState->binary)
-				{
-					/* append default line termination string depending on the platform */
-			#ifndef WIN32
-					CopySendChar(copyOutState, '\n');
-			#else
-					CopySendString(copyOutState, "\r\n");
-			#endif
-				}
-				//ereport(DEBUG3, (errmsg("66666")));
-				WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);	
-				//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-				//ereport(DEBUG3, (errmsg("77777")));
-			}
-			res1 = PQgetResult(pSubPlan->conn);
-		}
-		PQclear(res1);
-		/* close the connection to the database and cleanup */
-		PQfinish(pSubPlan->conn);
-		//FileClose(pSubPlan->fc.fd);
-		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
-	}
-	TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-							&durationMicrosecs);
-	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG3, (errmsg("-------run parallel query time cost:%d" ,durationMillisecs)));
-
-
-
-	//3. run dependent subplans sequentially
-
-	// List *newDistrubutedSubPlans = NULL;
-	// DistributedSubPlan *subPlanxx = NULL;
-	// int i = 0;
-	// DistributedSubPlan *subPlan1 = NULL;
-	// DistributedSubPlan *subPlan2 = NULL;
-	// foreach_ptr(subPlanxx, subPlanList)
-	// {	
-	// 	if (i== 0 || i==1) {
-	// 		newDistrubutedSubPlans = lappend(newDistrubutedSubPlans, subPlanxx);
-	// 	}
-	// 	if (i==0) {
-	// 		subPlan1 = subPlanxx;
-	// 	} else if (i==1) {
-	// 		subPlan2 = subPlanxx;
-	// 	}
-	// 	i++;
-	// }
-	// char *conninfo1 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60003";// connect_timeout = 5";
-	// char *conninfo2 = "host=172.31.87.38 dbname=postgres user=postgres password=password port=60002";// connect_timeout = 5";
-	// PGconn *conn1 = PQconnectStart(conninfo1);
-	// ConnStatusType  ConnType = PQstatus(conn1);
-	// ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
-	// if (CONNECTION_BAD == ConnType) {
-	// 	ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
-	// }
-
-	// PGconn *conn2 = PQconnectStart(conninfo2);
-	// ConnStatusType  ConnType2 = PQstatus(conn2);
-	// ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType2)));
-	// if (CONNECTION_BAD == ConnType2) {
-	// 	ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType2)));
-	// }
-	// PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
-	// while (true)
-	// {
-	// 	polltype = PQconnectPoll(conn1);
-	// 	if (polltype == PGRES_POLLING_FAILED)
-	// 		ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
-	// 	if (polltype == PGRES_POLLING_OK)
-	// 		break;
-	// }
-	// while (true)
-	// {
-	// 	polltype = PQconnectPoll(conn2);
-	// 	if (polltype == PGRES_POLLING_FAILED)
-	// 		ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
-	// 	if (polltype == PGRES_POLLING_OK)
-	// 		break;
-	// }
-	// ereport(DEBUG3, (errmsg("create connection success")));
-	// // MultiConnection *connection = StartNodeUserDatabaseConnection(0,
-	// // 																  "172.31.87.38",
-	// // 																  60003,
-	// // 																  NULL, NULL);
-	// // WorkerSession *session = (WorkerSession *) palloc0(sizeof(WorkerSession));
-	// // session->sessionId = 1;
-	// // session->connection = connection;
-	// // session->commandsSent = 0;
-
-	// // MultiConnection *connection2 = StartNodeUserDatabaseConnection(0,
-	// // 																  "172.31.87.38",
-	// // 																  60002,
-	// // 																  NULL, NULL);
-
-	// // WorkerSession *session2 = (WorkerSession *) palloc0(sizeof(WorkerSession));
-	// // session2->sessionId = 2;
-	// // session2->connection = connection2;
-	// // session2->commandsSent = 0;
-	// DistributedPlan *node1 = GetDistributedPlan((CustomScan *) subPlan1->plan->planTree);
-	// DistributedPlan *node2 = GetDistributedPlan((CustomScan *) subPlan2->plan->planTree);
- //    Task *task1 = (Task *)linitial(node1->workerJob->taskList);
- //    Task *task2 = (Task *)linitial(node2->workerJob->taskList);
-	// //int rc1 = PQsendQuery(conn1, task1->taskQuery.data.queryStringLazy);
-	// int rc1 = PQsendQueryParams(conn1, task1->taskQuery.data.queryStringLazy, 0, NULL,
-	// 						   NULL, NULL, NULL, 1);
-	// //int rc2 = PQsendQuery(conn2, task2->taskQuery.data.queryStringLazy);
-	// int rc2 = PQsendQueryParams(conn2, task2->taskQuery.data.queryStringLazy, 0, NULL,
-	// 						   NULL, NULL, NULL, 1);
-	// ereport(DEBUG3, (errmsg("rc1:%d, rc2:%d, sql:%s",rc1,rc2,task1->taskQuery.data.queryStringLazy)));
-	// ereport(DEBUG3, (errmsg("rc1:%s, rc2:%s",conn1->errorMessage.data,conn2->errorMessage.data)));
-
-	// const int fileFlags = (O_APPEND | O_CREAT | O_RDWR | O_TRUNC | PG_BINARY);
-	// const int fileMode = (S_IRUSR | S_IWUSR);
-
-	// /* make sure the directory exists */
-	// CreateIntermediateResultsDirectory();
-	// const char *fileName1 =  QueryResultFileName( GenerateResultId(planId, subPlan1->subPlanId));
-	// const char *fileName2 =  QueryResultFileName( GenerateResultId(planId, subPlan2->subPlanId));
-	// ereport(DEBUG3, (errmsg("fileName1:%s, fileName2:%s",fileName1,fileName2)));
-	// FileCompat fc1 = FileCompatFromFileStart(FileOpenForTransmit(fileName1,
-	// 																		 fileFlags,
-	// 																		 fileMode));
-	// FileCompat fc2 = FileCompatFromFileStart(FileOpenForTransmit(fileName2,
-	// 																		 fileFlags,
-	// 																		 fileMode));
-	// // config DestReceiver
-	// const char *delimiterCharacter = "\t";
-	// const char *nullPrintCharacter = "\\N";
-	// //EState *estate = CreateExecutorState();
-	// // DestReceiver *copyDest1 =
-	// // 		CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan1->subPlanId), estate, NULL,
-	// // 									 true);	
 	// CopyOutState copyOutState1 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
 	// copyOutState1->delim = (char *) delimiterCharacter;
 	// copyOutState1->null_print = (char *) nullPrintCharacter;
@@ -2164,353 +1996,171 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// copyOutState1->binary = true;
 	// copyOutState1->fe_msgbuf = makeStringInfo();
 	// copyOutState1->need_transcoding = false;
-	// //copyOutState->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
-	// //RemoteFileDestReceiver *resultDest1 = (RemoteFileDestReceiver *) copyDest1;
-	// //resultDest1->copyOutState = copyOutState;
+	// startTimestamp = GetCurrentTimestamp();
 
-	// // EState *estate2 = CreateExecutorState();
-	// // DestReceiver *copyDest2 =
-	// // 		CreateRemoteFileDestReceiver(GenerateResultId(planId, subPlan2->subPlanId), estate2, NULL,
-	// // 									 true);		
-	// CopyOutState copyOutState2 = (CopyOutState) palloc0(sizeof(CopyOutStateData));
-	// copyOutState2->delim = (char *) delimiterCharacter;
-	// copyOutState2->null_print = (char *) nullPrintCharacter;
-	// copyOutState2->null_print_client = (char *) nullPrintCharacter;
-	// //copyOutState2->binary = CanUseBinaryCopyFormat(inputTupleDescriptor);
-	// copyOutState2->binary = true;
-	// copyOutState2->fe_msgbuf = makeStringInfo();
-	// copyOutState2->need_transcoding = false;
-	// //copyOutState2->rowcontext = GetPerTupleMemoryContext(resultDest->executorState);
-	// // RemoteFileDestReceiver *resultDest2 = (RemoteFileDestReceiver *) copyDest2;
-	// // resultDest1->copyOutState = copyOutState2;
+	// TimestampTz startTimestampForWrite = GetCurrentTimestamp();
+	// long durationSecondsForWrite = 0.0;
+	// int durationMicrosecsForWrite = 0;
+	// long durationMillisecsForWrite = 0.0;
+	// long durationMillisecsForWriteTotal = 0.0;
 
-
-	// // get return value
-	// PGresult   *res1;
-	// PGresult   *res2;
-	// res1 = PQgetResult(conn1);
-	// int columnCount = PQnfields(res1);
-	// int columnCount = columnCount;
-	// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
-	// for (int i = 0; i < columnCount; i++) {
-	// 	ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",i ,PQfname(res1, i),PQftype(res1,i))));
-	// }
-	// FmgrInfo *fi = NULL;
-	// //CopyCoercionData *ccd = NULL;
-	// Oid *typeArray = NULL;
-	// int availableColumnCount = 0;
-	// CopyOutState copyOutState = copyOutState1;
-	// resetStringInfo(copyOutState->fe_msgbuf);
-	// /* Signature */
-	// CopySendData(copyOutState, BinarySignature, 11);
-
-	// /* Flags field (no OIDs) */
-	// CopySendInt32(copyOutState, zero);
-
-	// /* No header extension */
-	// CopySendInt32(copyOutState, zero);
-	// WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);
-	// while (true)
-	// {
-	// 	ereport(DEBUG3, (errmsg("+++++++++columnCount:%d, columnCount:%d",columnCount,columnCount)));
-	// 	ereport(DEBUG3, (errmsg("walk into while (true) 1")));
-	// 	if (!res1)
-	// 		break;
-	// 	if (fi == NULL) {
-	// 		typeArray = palloc0(columnCount * sizeof(Oid));
-	// 		int columnIndex = 0;
-	// 		for (; columnIndex < columnCount; columnIndex++)
-	// 		{
-	// 			ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
-	// 			typeArray[columnIndex] = PQftype(res1,columnIndex);
-	// 			ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
-	// 			if (typeArray[columnIndex] != InvalidOid) {
-	// 				ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
-	// 				availableColumnCount++;
-	// 			}
-	// 			ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
+	// foreach_ptr(pSubPlan, parallelJobList) {
+	// 	durationMillisecsForWrite = 0.0;
+	// 	PGresult   *res1;
+	// 	res1 = PQgetResult(pSubPlan->conn);
+	// 	int columnCount = PQnfields(res1);
+	// 	int availableColumnCount = 0;
+	// 	Datum *columnValues = palloc0(columnCount * sizeof(Datum));
+	// 	bool *columnNulls = palloc0(columnCount * sizeof(bool));
+	// 	int *columeSizes = palloc0(columnCount * sizeof(int));
+	// 	Oid *typeArray = palloc0(columnCount * sizeof(Oid));
+	// 	// ereport(DEBUG3, (errmsg("columnCount:%d, columnCount:%d",columnCount,columnCount)));
+	// 	for (int columnIndex = 0; columnIndex < columnCount; columnIndex++) {
+	// 		typeArray[columnIndex] = PQftype(res1,columnIndex);
+	// 		if (typeArray[columnIndex] != InvalidOid) {
+	// 			availableColumnCount++;
 	// 		}
-	// 		ereport(DEBUG3, (errmsg("11111")));
-	// 		fi = TypeOutputFunctions(columnCount, typeArray, true);
-	// 		ereport(DEBUG3, (errmsg("22222")));
+	// 		//ereport(DEBUG3, (errmsg("%d, %-15s, oid:%d",columnIndex ,PQfname(res1, columnIndex),PQftype(res1,columnIndex))));
 	// 	}
-	// 	ereport(DEBUG3, (errmsg("3333")));
-	// 	// if (ccd == NULL) {
-	// 	// 	ccd = palloc0(columnCount * sizeof(CopyCoercionData));
-	// 	// 	for (int columnIndex = 0; columnIndex < columnCount; columnIndex++)
-	// 	// 	{
-	// 	// 		Oid inputTupleType = typeArray[columnIndex];
-	// 	// 		char *columnName = PQfname(res1,columnIndex);
 
-	// 	// 		if (inputTupleType == InvalidOid)
-	// 	// 		{
-	// 	// 			/* TypeArrayFromTupleDescriptor decided to skip this column */
-	// 	// 			continue;
-	// 	// 		}
-	// 	// 	}
-	// 	// }
-	// 	// write to local file
-	// 	ereport(DEBUG3, (errmsg("PQntuples:%d",PQntuples(res1))));
-	// 	for (int i = 0; i < PQntuples(res1); i++)
-	// 	{
-	// 		Datum *columnValues = palloc0(columnCount * sizeof(Datum));
-	// 		bool *columnNulls = palloc0(columnCount * sizeof(bool));
-	// 		int *columeSizes = palloc0(columnCount * sizeof(int));
-	// 		memset(columnValues, 0, columnCount * sizeof(Datum));
-	// 		memset(columnNulls, 0, columnCount * sizeof(bool));
-	// 		memset(columeSizes, 0, columnCount * sizeof(int));
-	// 		for (int j = 0; j < columnCount; j++){
-	// 			//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
-	// 			if (PQgetisnull(res1, i, j))
-	// 			{
-	// 				columnValues[j] = NULL;
-	// 				columnNulls[j] = true;
-	// 			}else {
-	// 				char *value = PQgetvalue(res1, i, j);
-	// 				if (copyOutState->binary){
-	// 					if (PQfformat(res1, j) == 0){
-	// 						ereport(ERROR, (errmsg("unexpected text result")));
-	// 					}
-	// 				}
-	// 				columnValues[j] = (Datum)value;
-	// 			}
-	// 			columeSizes[j] = PQgetlength(res1,i,j);
-	// 			//char *value = PQgetvalue(res1, i, j);
-	// 			//columnValues[j] = (Datum)value;
-	// 			//AppendCopyRowData
-	// 			// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
-	// 			// CopyOutState copyOutState = resultDest->copyOutState;
-	// 		}
-	// 		ereport(DEBUG3, (errmsg("44444")));
-	// 		uint32 appendedColumnCount = 0;
-	// 		resetStringInfo(copyOutState->fe_msgbuf);
-	// 		bool binary = true;
-	// 		if (copyOutState->binary)
-	// 		{
-	// 			ereport(DEBUG3, (errmsg("CopySendInt16")));
-	// 			CopySendInt16(copyOutState, columnCount);
-	// 		}
-	// 		for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-	// 			//ereport(DEBUG3, (errmsg("44444------")));
-	// 			Datum value = columnValues[columnIndex];
-	// 			int size = columeSizes[columnIndex];
-	// 			//ereport(DEBUG3, (errmsg("44444@@@@@")));
-	// 			//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
-	// 			bool isNull = columnNulls[columnIndex];
-	// 			bool lastColumn = false;
-	// 			if (typeArray[columnIndex] == InvalidOid) {
-	// 				continue;
-	// 			} else if (binary) {
-	// 				if (!isNull) {
-	// 					//ereport(DEBUG3, (errmsg("4.1")));
-	// 					//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-	// 					//bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
-	// 					//bytea *outputBytes = DatumGetByteaP(value);
-	// 					//ereport(DEBUG3, (errmsg("4.2")));
-	// 					//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-	// 					CopySendInt32(copyOutState, size);
-	// 					//ereport(DEBUG3, (errmsg("4.3")));
-	// 					//CopySendData(copyOutState, VARDATA(outputBytes),
-	// 					//	 VARSIZE(outputBytes) - VARHDRSZ);
-	// 					CopySendData(copyOutState, (char *)value, size);
-	// 				}
-	// 				else
-	// 				{
-	// 					//ereport(DEBUG3, (errmsg("4.4")));
-	// 					CopySendInt32(copyOutState, -1);
-	// 				}
-	// 			} else {
-	// 				if (!isNull) {
-	// 					FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-	// 					//ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
-	// 					//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-	// 					//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
-	// 					//CopyAttributeOutText(copyOutState, columnText);
-	// 					CopyAttributeOutText(copyOutState, (char *)value);
-	// 				} else {
-	// 					CopySendString(copyOutState, copyOutState->null_print_client);
-	// 				}
-	// 				lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
-	// 				if (!lastColumn){
-	// 					CopySendChar(copyOutState, copyOutState->delim[0]);
-	// 				}
-
-	// 			}
-	// 			appendedColumnCount++;
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("55555")));
-	// 		if (!copyOutState->binary)
-	// 		{
-	// 			/* append default line termination string depending on the platform */
-	// 	#ifndef WIN32
-	// 			CopySendChar(copyOutState, '\n');
-	// 	#else
-	// 			CopySendString(copyOutState, "\r\n");
-	// 	#endif
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("66666")));
-	// 		WriteToLocalFile(copyOutState->fe_msgbuf, &fc1);	
-	// 		//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-	// 		//ereport(DEBUG3, (errmsg("77777")));
-	// 	}
-	// 	res1 = PQgetResult(conn1);
-	// }
-	// /*res = PQexec(conn, "END");*/
-	// PQclear(res1);
-	// /* close the connection to the database and cleanup */
-	// PQfinish(conn1);
-	// ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
-	// //sleep(60);	
-	// res2 = PQgetResult(conn2);
-	// columnCount = PQnfields(res2);
-	// for (int i = 0; i < columnCount; i++) {
-	// 	ereport(DEBUG3, (errmsg("%-15s",PQfname(res2, i))));
-	// }
-	// fi = NULL;
-	// availableColumnCount = 0;
-	// resetStringInfo(copyOutState->fe_msgbuf);
-	// /* Signature */
-	// CopySendData(copyOutState, BinarySignature, 11);
-
-	// /* Flags field (no OIDs) */
-	// CopySendInt32(copyOutState, zero);
-
-	// /* No header extension */
-	// CopySendInt32(copyOutState, zero);
-	// WriteToLocalFile(copyOutState->fe_msgbuf, &fc2);
-	// while (true)
-	// {
-	// 	if (!res2)
-	// 		break;
-	// 	if (fi == NULL) {
-	// 		typeArray = palloc0(columnCount * sizeof(Oid));
-	// 		int columnIndex = 0;
-	// 		for (; columnIndex < columnCount; columnIndex++)
-	// 		{
-	// 			//ereport(DEBUG3, (errmsg("columnIndex:%d",columnIndex)));
-	// 			typeArray[columnIndex] = PQftype(res2,columnIndex);
-	// 			//ereport(DEBUG3, (errmsg("typeArray[columnIndex]:%d",typeArray[columnIndex])));
-	// 			if (typeArray[columnIndex] != InvalidOid) {
-	// 				//ereport(DEBUG3, (errmsg("typeArray[columnIndex] != InvalidOid")));
-	// 				availableColumnCount++;
-	// 			}
-	// 			//ereport(DEBUG3, (errmsg("PQftype: columnIndex:%d,  typid:%d",columnIndex, PQftype(res1,columnIndex))));
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("11111")));
-	// 		fi = TypeOutputFunctions(columnCount, typeArray, true);
-	// 		//ereport(DEBUG3, (errmsg("22222")));
-	// 	}
+	// 	//FmgrInfo *fi = NULL;
+	// 	//CopyCoercionData *ccd = NULL;
 	// 	CopyOutState copyOutState = copyOutState1;
-	// 	for (int i = 0; i < PQntuples(res2); i++)
-	// 	{
-	// 		Datum *columnValues = palloc0(columnCount * sizeof(Datum));
-	// 		bool *columnNulls = palloc0(columnCount * sizeof(bool));
-	// 		int *columeSizes = palloc0(columnCount * sizeof(int));
-	// 		memset(columnValues, 0, columnCount * sizeof(Datum));
-	// 		memset(columnNulls, 0, columnCount * sizeof(bool));
-	// 		memset(columeSizes, 0, columnCount * sizeof(int));
-
-	// 		for (int j = 0; j < columnCount; j++){
-	// 			//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
-	// 			if (PQgetisnull(res2, i, j))
-	// 			{
-	// 				columnValues[j] = NULL;
-	// 				columnNulls[j] = true;
-	// 			} else {
-	// 				char *value = PQgetvalue(res2, i, j);
-	// 				if (copyOutState->binary){
-	// 					if (PQfformat(res2, j) == 0){
-	// 						ereport(ERROR, (errmsg("unexpected text result")));
-	// 					}
-	// 				}
-	// 				columnValues[j] = (Datum)value;
-	// 			}
-	// 			columeSizes[j] = PQgetlength(res2,i,j);
-	// 			//AppendCopyRowData
-	// 			// RemoteFileDestReceiver *resultDest = (RemoteFileDestReceiver *) copyDest1;
-	// 			// CopyOutState copyOutState = resultDest->copyOutState;
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("44444")));
-	// 		uint32 appendedColumnCount = 0;
+	// 	if (pSubPlan->useBinaryCopyFormat) {
 	// 		resetStringInfo(copyOutState->fe_msgbuf);
-	// 		bool binary = true;
-	// 		if (copyOutState->binary)
-	// 		{
-	// 			ereport(DEBUG3, (errmsg("CopySendInt16")));
-	// 			CopySendInt16(copyOutState, columnCount);
-	// 		}
-	// 		for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
-	// 			//ereport(DEBUG3, (errmsg("44444------")));
-	// 			Datum value = columnValues[columnIndex];
-	// 			int size = columeSizes[columnIndex];
-	// 			//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
-	// 			bool isNull = columnNulls[columnIndex];
-	// 			bool lastColumn = false;
-	// 			if (typeArray[columnIndex] == InvalidOid) {
-	// 				continue;
-	// 			} else if (binary) {
-	// 				if (!isNull) {
-	// 					//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-	// 					//bytea *outputBytes = SendFunctionCall(outputFunctionPointer, value);
-	// 					//bytea *outputBytes = DatumGetByteaP(value);
-	// 					//ereport(DEBUG3, (errmsg("4.1")));
-	// 					//bytea *outputBytes = DatumGetByteaP(value);
-	// 					//ereport(DEBUG3, (errmsg("4.2")));
-	// 					//CopySendInt32(copyOutState, VARSIZE(outputBytes) - VARHDRSZ);
-	// 					CopySendInt32(copyOutState, size);
-	// 					//ereport(DEBUG3, (errmsg("4.3")));
-	// 					//CopySendData(copyOutState, VARDATA(outputBytes),
-	// 					//	 VARSIZE(outputBytes) - VARHDRSZ);
-	// 					CopySendData(copyOutState, (char *)value, size);
-	// 				}
-	// 				else
-	// 				{
-	// 					CopySendInt32(copyOutState, -1);
-	// 				}
-	// 			} else {
-	// 				if (!isNull) {
-	// 					FmgrInfo *outputFunctionPointer = &fi[columnIndex];
-	// 					//ereport(DEBUG3, (errmsg("44444+,%d",outputFunctionPointer->fn_oid)));
-	// 					//char *columnText = OutputFunctionCall(outputFunctionPointer, value);
-	// 					//ereport(DEBUG3, (errmsg("44444++++,%s",columnText)));
-	// 					//CopyAttributeOutText(copyOutState, columnText);
-	// 					CopyAttributeOutText(copyOutState, (char *)value);
-	// 				} else {
-	// 					CopySendString(copyOutState, copyOutState->null_print_client);
-	// 				}
-	// 				lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
-	// 				if (!lastColumn){
-	// 					CopySendChar(copyOutState, copyOutState->delim[0]);
-	// 				}
-
-	// 			}
-	// 			appendedColumnCount++;
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("55555")));
-	// 		if (!copyOutState->binary)
-	// 		{
-	// 			/* append default line termination string depending on the platform */
-	// 	#ifndef WIN32
-	// 			CopySendChar(copyOutState, '\n');
-	// 	#else
-	// 			CopySendString(copyOutState, "\r\n");
-	// 	#endif
-	// 		}
-	// 		//ereport(DEBUG3, (errmsg("66666")));
-	// 		WriteToLocalFile(copyOutState->fe_msgbuf, &fc2);	
-	// 		//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
-	// 		//ereport(DEBUG3, (errmsg("77777")));
+	// 		/* Signature */
+	// 		CopySendData(copyOutState, BinarySignature, 11);
+		
+	// 		/* Flags field (no OIDs) */
+	// 		CopySendInt32(copyOutState, zero);
+		
+	// 		/* No header extension */
+	// 		CopySendInt32(copyOutState, zero);
+	// 		WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);
 	// 	}
-	// 	res2 = PQgetResult(conn2);
+		
+	// 	while (true)
+	// 	{
+	// 		//ereport(DEBUG3, (errmsg("+++++++++columnCount:%d, columnCount:%d",columnCount,columnCount)));
+	// 		//ereport(DEBUG3, (errmsg("walk into while (true) 1")));
+	// 		if (!res1)
+	// 			break;
+	// 		// write to local file
+	// 		if (IsLoggableLevel(DEBUG3)) {
+	// 			ereport(DEBUG3, (errmsg("PQntuples:%d", PQntuples(res1))));
+	// 		}
+	// 		startTimestampForWrite = GetCurrentTimestamp();
+	// 		for (int i = 0; i < PQntuples(res1); i++)
+	// 		{
+	// 			memset(columnValues, 0, columnCount * sizeof(Datum));
+	// 			memset(columnNulls, 0, columnCount * sizeof(bool));
+	// 			memset(columeSizes, 0, columnCount * sizeof(int));
+	// 			for (int j = 0; j < columnCount; j++){
+	// 				//ereport(DEBUG3, (errmsg("%-15s",PQgetvalue(res1, i, j))));
+	// 				if (PQgetisnull(res1, i, j))
+	// 				{
+	// 					columnValues[j] = NULL;
+	// 					columnNulls[j] = true;
+	// 				}else {
+	// 					char *value = PQgetvalue(res1, i, j);
+	// 					if (copyOutState->binary){
+	// 						if (PQfformat(res1, j) == 0){
+	// 							ereport(ERROR, (errmsg("unexpected text result")));
+	// 						}
+	// 					}
+	// 					columnValues[j] = (Datum)value;
+	// 				}
+	// 				columeSizes[j] = PQgetlength(res1,i,j);
+	// 			}
+	// 			//ereport(DEBUG3, (errmsg("44444")));
+	// 			uint32 appendedColumnCount = 0;
+	// 			resetStringInfo(copyOutState->fe_msgbuf);
+	// 			//bool binary = true;
+	// 			if (pSubPlan->useBinaryCopyFormat)
+	// 			{
+	// 				//ereport(DEBUG3, (errmsg("CopySendInt16")));
+	// 				CopySendInt16(copyOutState, columnCount);
+	// 			}
+	// 			for (uint32 columnIndex = 0; columnIndex < columnCount; columnIndex++){
+	// 				//ereport(DEBUG3, (errmsg("44444------")));
+	// 				Datum value = columnValues[columnIndex];
+	// 				int size = columeSizes[columnIndex];
+	// 				//ereport(DEBUG3, (errmsg("44444@@@@@")));
+	// 				//ereport(DEBUG3, (errmsg("44444@@@@@,%s",(char *)value)));
+	// 				bool isNull = columnNulls[columnIndex];
+	// 				bool lastColumn = false;
+	// 				if (typeArray[columnIndex] == InvalidOid) {
+	// 					continue;
+	// 				} else if (pSubPlan->useBinaryCopyFormat) {
+	// 					if (!isNull) {
+	// 						CopySendInt32(copyOutState, size);
+	// 						CopySendData(copyOutState, (char *)value, size);
+	// 					}
+	// 					else
+	// 					{
+	// 						//ereport(DEBUG3, (errmsg("4.4")));
+	// 						CopySendInt32(copyOutState, -1);
+	// 					}
+	// 				} else {
+	// 					if (!isNull) {
+	// 						//FmgrInfo *outputFunctionPointer = &fi[columnIndex];
+	// 						CopyAttributeOutText(copyOutState, (char *)value);
+	// 					} else {
+	// 						CopySendString(copyOutState, copyOutState->null_print_client);
+	// 					}
+	// 					lastColumn = ((appendedColumnCount + 1) == availableColumnCount);
+	// 					if (!lastColumn){
+	// 						CopySendChar(copyOutState, copyOutState->delim[0]);
+	// 					}
+	
+	// 				}
+	// 				appendedColumnCount++;
+	// 			}
+	// 			//ereport(DEBUG3, (errmsg("55555")));
+	// 			if (!pSubPlan->useBinaryCopyFormat)
+	// 			{
+	// 				/* append default line termination string depending on the platform */
+	// 		#ifndef WIN32
+	// 				CopySendChar(copyOutState, '\n');
+	// 		#else
+	// 				CopySendString(copyOutState, "\r\n");
+	// 		#endif
+	// 			}
+	// 			//ereport(DEBUG3, (errmsg("66666")));
+	// 			WriteToLocalFile(copyOutState->fe_msgbuf, &pSubPlan->fc);	
+	// 			//ereport(DEBUG3, (errmsg("WriteToLocalFile success, data :%s"),copyOutState->fe_msgbuf->data));	
+	// 			//ereport(DEBUG3, (errmsg("77777")));
+	// 		}
+	// 		TimestampDifference(startTimestampForWrite, GetCurrentTimestamp(), &durationSecondsForWrite,
+	// 						&durationMicrosecsForWrite);
+	// 		durationMillisecsForWrite += durationSecondsForWrite * SECOND_TO_MILLI_SECOND;
+	// 		durationMillisecsForWrite += durationMicrosecsForWrite * MICRO_TO_MILLI_SECOND;
+
+	// 		res1 = PQgetResult(pSubPlan->conn);
+	// 	}
+	// 	PQclear(res1);
+	// 	/* close the connection to the database and cleanup */
+	// 	PQfinish(pSubPlan->conn);
+	// 	//FileClose(pSubPlan->fc.fd);
+	// 	if (IsLoggableLevel(DEBUG3)) {
+	// 		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
+	// 	}
+	// 	ereport(DEBUG1, (errmsg("-------subplan %d, run write to local file time cost:%d" , pSubPlan->subPlan->subPlanId, durationMillisecsForWrite)));
+	// 	durationMillisecsForWriteTotal += durationMillisecsForWrite;
 	// }
-	// /*res = PQexec(conn, "END");*/
-	// PQclear(res2);
-	// /* close the connection to the database and cleanup */
-	// PQfinish(conn2);
+	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+	// 						&durationMicrosecs);
+	// durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+	// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+	// ereport(DEBUG1, (errmsg("-------start time: %d, run parallel query time cost:%d, wirte to local file time cost:%d",
+	//  (int64)startTimestamp/1000, durationMillisecs, durationMillisecsForWriteTotal)));
 
 
+
+	//3. run dependent subplans sequentially
 	/* ------------- danny test end ---------------  */
 	startTimestamp = GetCurrentTimestamp();
+	startTime = getTimeMilliseconds();
 	//DistributedSubPlan *subPlan = NULL;
 	//i =0 ;
 	foreach_ptr(subPlan, sequenceJobList)
@@ -2524,7 +2174,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		// if (i==5){
 		// 	sleep(200);
 		// }
-		long start_time = getTimeUsec()/1000;
+		long long start_time = getTimeMilliseconds();
 		/* ------------- danny test end ---------------  */
 		PlannedStmt *plannedStmt = subPlan->plan;
 		uint32 subPlanId = subPlan->subPlanId;
@@ -2583,5 +2233,5 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG1, (errmsg("-------run sequentially query time cost:%d" ,durationMillisecs)));
+	ereport(DEBUG1, (errmsg("-------start time: %lld, run sequentially query time cost:%d" , startTime, durationMillisecs)));
 }

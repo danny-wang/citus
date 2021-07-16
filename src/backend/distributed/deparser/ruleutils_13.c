@@ -352,6 +352,18 @@ static void pop_ancestor_plan(deparse_namespace *dpns,
 static void get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 			  TupleDesc resultDesc,
 			  int prettyFlags, int wrapColumn, int startIndent);
+static void get_target_list_def(Query *query, StringInfo buf, List *parentnamespace,
+			  TupleDesc resultDesc,
+			  int prettyFlags, int wrapColumn, int startIndent);
+static void get_target_list_def_extended(Query *query, StringInfo buf, List *parentnamespace,
+					   Oid distrelid, int64 shardid, TupleDesc resultDesc,
+					   int prettyFlags, int wrapColumn, int startIndent);
+static void get_where_condition_def(Query *query, StringInfo buf, List *parentnamespace,
+			  TupleDesc resultDesc,
+			  int prettyFlags, int wrapColumn, int startIndent);
+static void get_where_condition_def_extended(Query *query, StringInfo buf, List *parentnamespace,
+					   Oid distrelid, int64 shardid, TupleDesc resultDesc,
+					   int prettyFlags, int wrapColumn, int startIndent);
 static void get_query_def_extended(Query *query, StringInfo buf,
 				List *parentnamespace, Oid distrelid, int64 shardid,
 				TupleDesc resultDesc, int prettyFlags, int wrapColumn,
@@ -463,6 +475,17 @@ void
 pg_get_query_def(Query *query, StringInfo buffer)
 {
 	get_query_def(query, buffer, NIL, NULL, 0, WRAP_COLUMN_DEFAULT, 0);
+}
+
+void 
+pg_get_target_list_def(Query *query, StringInfo buffer){
+
+	get_target_list_def(query, buffer, NIL, NULL, 0, WRAP_COLUMN_DEFAULT, 0);
+}
+
+void  
+pg_get_where_condition_def(Query *query, StringInfo buffer){
+	get_where_condition_def(query, buffer, NIL, NULL, 0, WRAP_COLUMN_DEFAULT, 0);
 }
 
 
@@ -1812,6 +1835,156 @@ get_query_def(Query *query, StringInfo buf, List *parentnamespace,
 {
 	get_query_def_extended(query, buf, parentnamespace, InvalidOid, 0, resultDesc,
 						   prettyFlags, wrapColumn, startIndent);
+}
+
+static void
+get_target_list_def(Query *query, StringInfo buf, List *parentnamespace,
+			  TupleDesc resultDesc,
+			  int prettyFlags, int wrapColumn, int startIndent)
+{
+	get_target_list_def_extended(query, buf, parentnamespace, InvalidOid, 0, resultDesc,
+						   prettyFlags, wrapColumn, startIndent);
+}
+
+static void
+get_where_condition_def(Query *query, StringInfo buf, List *parentnamespace,
+			  TupleDesc resultDesc,
+			  int prettyFlags, int wrapColumn, int startIndent)
+{
+	get_where_condition_def_extended(query, buf, parentnamespace, InvalidOid, 0, resultDesc,
+						   prettyFlags, wrapColumn, startIndent);
+}
+
+static void
+get_where_condition_def_extended(Query *query, StringInfo buf, List *parentnamespace,
+					   Oid distrelid, int64 shardid, TupleDesc resultDesc,
+					   int prettyFlags, int wrapColumn, int startIndent)
+{
+	deparse_context context;
+	deparse_namespace dpns;
+
+	OverrideSearchPath *overridePath = NULL;
+
+	/* Guard against excessively long or deeply-nested queries */
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
+
+	/*
+	 * Before we begin to examine the query, acquire locks on referenced
+	 * relations, and fix up deleted columns in JOIN RTEs.  This ensures
+	 * consistent results.  Note we assume it's OK to scribble on the passed
+	 * querytree!
+	 *
+	 * We are only deparsing the query (we are not about to execute it), so we
+	 * only need AccessShareLock on the relations it mentions.
+	 */
+	AcquireRewriteLocks(query, false, false);
+
+	/*
+	 * Set search_path to NIL so that all objects outside of pg_catalog will be
+	 * schema-prefixed. pg_catalog will be added automatically when we call
+	 * PushOverrideSearchPath(), since we set addCatalog to true;
+	 */
+	overridePath = GetOverrideSearchPath(CurrentMemoryContext);
+	overridePath->schemas = NIL;
+	overridePath->addCatalog = true;
+	PushOverrideSearchPath(overridePath);
+
+	context.buf = buf;
+	context.namespaces = lcons(&dpns, list_copy(parentnamespace));
+	context.windowClause = NIL;
+	context.windowTList = NIL;
+	context.varprefix = (parentnamespace != NIL ||
+						 list_length(query->rtable) != 1);
+	context.prettyFlags = prettyFlags;
+	context.wrapColumn = wrapColumn;
+	context.indentLevel = startIndent;
+	context.special_exprkind = EXPR_KIND_NONE;
+	context.appendparents = NULL;
+	context.distrelid = distrelid;
+	context.shardid = shardid;
+
+	set_deparse_for_query(&dpns, query, parentnamespace);
+
+	/* Set up context for possible window functions */
+	context.windowClause = query->windowClause;
+	context.windowTList = query->targetList;
+
+	/* Add the WHERE clause if given */
+	if (query->jointree->quals != NULL)
+	{
+		get_rule_expr(query->jointree->quals, &context, false);
+	}
+
+	/* revert back to original search_path */
+	PopOverrideSearchPath();
+}
+
+static void
+get_target_list_def_extended(Query *query, StringInfo buf, List *parentnamespace,
+					   Oid distrelid, int64 shardid, TupleDesc resultDesc,
+					   int prettyFlags, int wrapColumn, int startIndent)
+{
+	deparse_context context;
+	deparse_namespace dpns;
+
+	OverrideSearchPath *overridePath = NULL;
+
+	/* Guard against excessively long or deeply-nested queries */
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
+
+	/*
+	 * Before we begin to examine the query, acquire locks on referenced
+	 * relations, and fix up deleted columns in JOIN RTEs.  This ensures
+	 * consistent results.  Note we assume it's OK to scribble on the passed
+	 * querytree!
+	 *
+	 * We are only deparsing the query (we are not about to execute it), so we
+	 * only need AccessShareLock on the relations it mentions.
+	 */
+	AcquireRewriteLocks(query, false, false);
+
+	/*
+	 * Set search_path to NIL so that all objects outside of pg_catalog will be
+	 * schema-prefixed. pg_catalog will be added automatically when we call
+	 * PushOverrideSearchPath(), since we set addCatalog to true;
+	 */
+	overridePath = GetOverrideSearchPath(CurrentMemoryContext);
+	overridePath->schemas = NIL;
+	overridePath->addCatalog = true;
+	PushOverrideSearchPath(overridePath);
+
+	context.buf = buf;
+	context.namespaces = lcons(&dpns, list_copy(parentnamespace));
+	context.windowClause = NIL;
+	context.windowTList = NIL;
+	context.varprefix = (parentnamespace != NIL ||
+						 list_length(query->rtable) != 1);
+	context.prettyFlags = prettyFlags;
+	context.wrapColumn = wrapColumn;
+	context.indentLevel = startIndent;
+	context.special_exprkind = EXPR_KIND_NONE;
+	context.appendparents = NULL;
+	context.distrelid = distrelid;
+	context.shardid = shardid;
+
+	set_deparse_for_query(&dpns, query, parentnamespace);
+
+	/* Set up context for possible window functions */
+	context.windowClause = query->windowClause;
+	context.windowTList = query->targetList;
+
+	/*
+	 * If the Query node has a setOperations tree, then it's the top level of
+	 * a UNION/INTERSECT/EXCEPT query; only the WITH, ORDER BY and LIMIT
+	 * fields are interesting in the top query itself.
+	 */
+	/* Then we tell what to select (the targetlist) */
+	get_target_list(query->targetList, &context, resultDesc);
+
+	/* revert back to original search_path */
+	PopOverrideSearchPath();
 }
 
 
