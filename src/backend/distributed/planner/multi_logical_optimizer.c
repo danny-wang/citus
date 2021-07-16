@@ -1830,7 +1830,8 @@ MasterAggregateExpression(Aggref *originalAggregate,
 			 aggregateType == AGGREGATE_JSONB_AGG ||
 			 aggregateType == AGGREGATE_JSONB_OBJECT_AGG ||
 			 aggregateType == AGGREGATE_JSON_AGG ||
-			 aggregateType == AGGREGATE_JSON_OBJECT_AGG)
+			 aggregateType == AGGREGATE_JSON_OBJECT_AGG ||
+			 aggregateType == AGGREGATE_ST_ASGEOBUF_AGG)
 	{
 		/*
 		 * Array and json aggregates are handled in two steps. First, we compute
@@ -1863,6 +1864,10 @@ MasterAggregateExpression(Aggref *originalAggregate,
 			/* jsonb_cat_agg() takes jsonb as input */
 			catAggregateName = JSONB_CAT_AGGREGATE_NAME;
 			catInputType = JSONBOID;
+		}else if (aggregateType == AGGREGATE_ST_ASGEOBUF_AGG) {
+			ereport(DEBUG3, (errmsg("aggregateType == AGGREGATE_ST_ASGEOBUF_AGG")));
+			catAggregateName = ST_ASGEOBUF_AGG_NAME;
+			catInputType = BYTEAOID;
 		}
 		else
 		{
@@ -3405,6 +3410,7 @@ GetAggregateType(Aggref *aggregateExpression)
 
 	/* look up the function name */
 	char *aggregateProcName = get_func_name(aggFunctionId);
+	ereport(DEBUG3, (errmsg("aggregateProcName : %s", aggregateProcName)));
 	if (aggregateProcName == NULL)
 	{
 		ereport(ERROR, (errmsg("citus cache lookup failed for function %u",

@@ -1,6 +1,7 @@
 -- citus--10.0-2--10.0-3
 
 #include "udfs/citus_update_table_statistics/10.0-3.sql"
+#include "udfs/citus_st_asgeobuf/10.0-3.sql"
 
 CREATE OR REPLACE FUNCTION master_update_table_statistics(relation regclass)
 RETURNS VOID
