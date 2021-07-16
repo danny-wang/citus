@@ -48,6 +48,7 @@
 #include "distributed/worker_shard_visibility.h"
 /*  danny test beign */
 #include "distributed/log_utils.h"
+#include "nodes/print.h"
 /*  danny test end */
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
@@ -74,6 +75,11 @@
 static List *plannerRestrictionContextList = NIL;
 int MultiTaskQueryLogLevel = CITUS_LOG_LEVEL_OFF; /* multi-task query log level */
 static uint64 NextPlanId = 1;
+
+/* ------------- danny test begin ---------------  */
+#define SECOND_TO_MILLI_SECOND 1000
+#define MICRO_TO_MILLI_SECOND 0.001
+/* ------------- danny test end ---------------  */
 
 /* keep track of planner call stack levels */
 int PlannerLevel = 0;
@@ -138,128 +144,232 @@ static bool RecursivelyRegenerateSubqueryWalker(Node *node);
  * RecursivelyRegenerateSubqueries finds subqueries, if subquerise match target pattern, regenerate them.
  * current pattern: 
  * 1. select XXX from subquery(some tables linked by union, and each query not have join) where XXX. For this pattern, where condition can be push down
+ * 2. select XXX from (select YYY(include window func row_number()) from subquery(some tables linked by union, and each query not have join) where XXX) q1 where XXX, both , where condition can be push down
  */
 static bool
 RecursivelyRegenerateSubqueries(Query *query) {
+	//elog_node_display(LOG, "Query parse tree", query, Debug_pretty_print);
 	if (query->commandType == CMD_SELECT && query->hasWindowFuncs == false && query->hasTargetSRFs == false && query->hasSubLinks == false
 		&& query->hasDistinctOn == false && query->hasRecursive == false && query->hasModifyingCTE == false
 		&& query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL && list_length(query->rtable) == 1
-		&& query->jointree != NULL && list_length(query->jointree->fromlist) == 1){
+		&& query->jointree != NULL && list_length(query->jointree->fromlist) == 1) {
 		// 2. The where statement of the outer sql does not have a statistical function, and only single field is judged
 		//bool outerSqlHasWhere = false;
 		RangeTblEntry *rte = (RangeTblEntry *) lfirst(list_head(query->rtable));
 		if (query->jointree->quals != NULL && rte->rtekind == RTE_SUBQUERY) {
 			//outerSqlHasWhere = true;
 			Query* subquery = rte->subquery;
-			// subquery don't have from and where statement, only have union
-			if (subquery != NULL && subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasWindowFuncs == false&& subquery->hasTargetSRFs == false
-				&& subquery->hasSubLinks == false && subquery->hasDistinctOn == false && subquery->hasRecursive == false&& subquery->hasModifyingCTE == false
-				&& subquery->hasForUpdate == false&& subquery->hasRowSecurity == false && subquery->cteList == NULL && subquery->jointree != NULL 
-				&& list_length(subquery->jointree->fromlist) == 0 && subquery->jointree->quals == NULL && subquery->setOperations != NULL){
-				// 3. each union involved sql on query from one table  
-				bool allPhyisicalTableFollowRules = true;
-				ListCell   *lc;
-				foreach(lc, subquery->rtable){
-					RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
-					if (srte->rtekind == RTE_SUBQUERY) {
-						Query* ssubquery = srte->subquery;
-						// && ssubquery->jointree->quals == NULL && list_length(ssubquery->groupClause) == 0 && list_length(ssubquery->groupingSets) == 0 
-						// && list_length(ssubquery->windowClause) == 0 && list_length(ssubquery->distinctClause) == 0 && list_length(ssubquery->sortClause) == 0
-						// && ssubquery->limitOffset == NULL && ssubquery->limitCount == NULL
-						if (ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasWindowFuncs == false&& ssubquery->hasTargetSRFs == false
-							&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false&& ssubquery->hasRecursive == false&& ssubquery->hasModifyingCTE == false
-							&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
-							&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL){
-							RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
-							if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
-								allPhyisicalTableFollowRules = false;
-								break;
-							}
-						} else {
-							allPhyisicalTableFollowRules = false;
-							break;
-						}
-					}
-				}
-				// 4. then rewrite query, put where condtion to sub-queries and eliminate where condition in outer sql 
-				if (allPhyisicalTableFollowRules) {
-					// 5. drow where condition from outside sql
-					StringInfo subqueryString = makeStringInfo();
-					pg_get_query_def(query, subqueryString);
-					char* ptr = strstr(subqueryString->data," WHERE ");
-					StringInfo whereCondition = makeStringInfo();
-					if (ptr != NULL) {
-						char* ptr2 = strstr(subqueryString->data," WINDOW ");
-						if (ptr2 != NULL) {
-							*ptr2 = '\0';
-						}
-						char* ptr3 = strstr(subqueryString->data," HAVING ");
-						if (ptr3 != NULL) {
-							*ptr3 = '\0';
-						}
-						char* ptr4 = strstr(subqueryString->data," GROUP BY ");
-						if (ptr4 != NULL) {
-							*ptr4 = '\0';
-						}
-						appendStringInfo(whereCondition,"%s",ptr);
-						if (IsLoggableLevel(DEBUG3)) {
-							ereport(DEBUG3, (errmsg("################################## whereCondition：%s  ################", whereCondition->data)));
-						}
-					}
-					// 6. drow colume names from subquery
+			if (subquery->hasWindowFuncs == false) { // deal with condition one
+				// subquery don't have from and where statement, only have union
+				if (subquery != NULL && subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasTargetSRFs == false
+					&& subquery->hasSubLinks == false && subquery->hasDistinctOn == false && subquery->hasRecursive == false&& subquery->hasModifyingCTE == false
+					&& subquery->hasForUpdate == false&& subquery->hasRowSecurity == false && subquery->cteList == NULL && subquery->jointree != NULL 
+					&& list_length(subquery->jointree->fromlist) == 0 && subquery->jointree->quals == NULL && subquery->setOperations != NULL){
+					// 3. each union involved sql on query from one table  
+					bool allPhyisicalTableFollowRules = true;
 					ListCell   *lc;
-					StringInfo columeNames = makeStringInfo();
-					foreach(lc, rte->eref->colnames)
-					{
-						/*
-						 * If the column name shown in eref is an empty string, then it's
-						 * a column that was dropped at the time of parsing the query, so
-						 * treat it as dropped.
-						 */
-						char *coln = strVal(lfirst(lc));
-						if (coln[0] == '\0')
-							coln = NULL;
-						if (coln != NULL) {
-							if (columeNames->len == 0 ) {
-								appendStringInfo(columeNames,"%s",coln);
-							} else {
-								appendStringInfo(columeNames,", %s",coln);
-							}
-						}	
-					}
-					if (IsLoggableLevel(DEBUG3)) {
-						ereport(DEBUG3, (errmsg("################################## colnames：%s  ################", columeNames->data)));
-					}
-					// 7. push-down where condition to union on involved table
 					foreach(lc, subquery->rtable){
 						RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
 						if (srte->rtekind == RTE_SUBQUERY) {
 							Query* ssubquery = srte->subquery;
-							StringInfo subqueryFormatString = makeStringInfo();
-							pg_get_query_def(ssubquery, subqueryFormatString);
-							StringInfo regenerateSqlForWherePushDown = makeStringInfo();
-							appendStringInfo(regenerateSqlForWherePushDown,"SELECT %s FROM (%s) test %s", columeNames->data, subqueryFormatString->data, whereCondition->data);
-							//Query *newGenerateQuery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
-							srte->subquery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
-							// print log
-							StringInfo subqueryString2 = makeStringInfo();
-							//pg_get_query_def(newGenerateQuery, subqueryString2);
-							if (IsLoggableLevel(DEBUG3)) {
-								ereport(DEBUG3, (errmsg("$$$$$ before regenerate query:%s" , ApplyLogRedaction(subqueryFormatString->data))));
+							// && ssubquery->jointree->quals == NULL && list_length(ssubquery->groupClause) == 0 && list_length(ssubquery->groupingSets) == 0 
+							// && list_length(ssubquery->windowClause) == 0 && list_length(ssubquery->distinctClause) == 0 && list_length(ssubquery->sortClause) == 0
+							// && ssubquery->limitOffset == NULL && ssubquery->limitCount == NULL
+							if (ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasWindowFuncs == false&& ssubquery->hasTargetSRFs == false
+								&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false&& ssubquery->hasRecursive == false&& ssubquery->hasModifyingCTE == false
+								&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
+								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL){
+								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+									allPhyisicalTableFollowRules = false;
+									break;
+								}
+							} else {
+								allPhyisicalTableFollowRules = false;
+								break;
 							}
-							//ereport(DEBUG1, (errmsg("$$$$$ after regenerate query:%s" , ApplyLogRedaction(subqueryString2->data))));
 						}
 					}
-					subquery->stmt_len = -1;
-					subquery->stmt_location = -1;
-					// 8. outside sql not need where condition as it has been push down
-					query->jointree->quals = NULL;
+					// 4. then rewrite query, put where condtion to sub-queries and eliminate where condition in outer sql 
+					if (allPhyisicalTableFollowRules) {
+						// 5. drow where condition from outside sql
+						StringInfo subqueryString = makeStringInfo();
+						pg_get_query_def(query, subqueryString);
+						char* ptr = strstr(subqueryString->data," WHERE ");
+						StringInfo whereCondition = makeStringInfo();
+						if (ptr != NULL) {
+							char* ptr2 = strstr(subqueryString->data," WINDOW ");
+							if (ptr2 != NULL) {
+								*ptr2 = '\0';
+							}
+							char* ptr3 = strstr(subqueryString->data," HAVING ");
+							if (ptr3 != NULL) {
+								*ptr3 = '\0';
+							}
+							char* ptr4 = strstr(subqueryString->data," GROUP BY ");
+							if (ptr4 != NULL) {
+								*ptr4 = '\0';
+							}
+							appendStringInfo(whereCondition,"%s",ptr);
+							if (IsLoggableLevel(DEBUG3)) {
+								ereport(DEBUG3, (errmsg("################################## whereCondition：%s  ################", whereCondition->data)));
+							}
+						}
+						// 6. drow colume names from subquery
+						ListCell   *lc;
+						StringInfo columeNames = makeStringInfo();
+						foreach(lc, rte->eref->colnames)
+						{
+							/*
+							 * If the column name shown in eref is an empty string, then it's
+							 * a column that was dropped at the time of parsing the query, so
+							 * treat it as dropped.
+							 */
+							char *coln = strVal(lfirst(lc));
+							if (coln[0] == '\0')
+								coln = NULL;
+							if (coln != NULL) {
+								if (columeNames->len == 0 ) {
+									appendStringInfo(columeNames,"%s",coln);
+								} else {
+									appendStringInfo(columeNames,", %s",coln);
+								}
+							}	
+						}
+						if (IsLoggableLevel(DEBUG3)) {
+							ereport(DEBUG3, (errmsg("################################## colnames：%s  ################", columeNames->data)));
+						}
+						// 7. push-down where condition to union on involved table
+						foreach(lc, subquery->rtable){
+							RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+							if (srte->rtekind == RTE_SUBQUERY) {
+								Query* ssubquery = srte->subquery;
+								StringInfo subqueryFormatString = makeStringInfo();
+								pg_get_query_def(ssubquery, subqueryFormatString);
+								StringInfo regenerateSqlForWherePushDown = makeStringInfo();
+								appendStringInfo(regenerateSqlForWherePushDown,"SELECT %s FROM (%s) test %s", columeNames->data, subqueryFormatString->data, whereCondition->data);
+								//Query *newGenerateQuery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+								srte->subquery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+								// print log
+								StringInfo subqueryString2 = makeStringInfo();
+								//pg_get_query_def(newGenerateQuery, subqueryString2);
+								if (IsLoggableLevel(DEBUG3)) {
+									ereport(DEBUG3, (errmsg("$$$$$ before regenerate query:%s" , ApplyLogRedaction(subqueryFormatString->data))));
+									ereport(DEBUG1, (errmsg("$$$$$ after regenerate query:%s" , ApplyLogRedaction(regenerateSqlForWherePushDown->data))));
+								}
+								//ereport(DEBUG1, (errmsg("$$$$$ after regenerate query:%s" , ApplyLogRedaction(subqueryString2->data))));
+							}
+						}
+						subquery->stmt_len = -1;
+						subquery->stmt_location = -1;
+						// 8. outside sql not need where condition as it has been push down
+						query->jointree->quals = NULL;
+					}
+	
+				}
+			} else { // deal with conditon two
+				// check if the window func is 3100(row_number)
+				TargetEntry *te = NULL;
+				foreach_ptr(te, subquery->targetList) {
+					if (te->expr != NULL && IsA(te->expr, WindowFunc)) {
+						WindowFunc *wf = (WindowFunc *) te->expr;
+						if (wf->winfnoid != 3100) {  // window function: row_number()
+							if (IsLoggableLevel(DEBUG3)) {
+								ereport(DEBUG1, (errmsg("wf->winfnoid != 3100, wf->winfnoid:%d" , wf->winfnoid)));
+							}
+							query_tree_walker(query, RecursivelyRegenerateSubqueryWalker, NULL, 0);
+							return true;
+						}
+					}
+				}
+				// subquery don't have from and where statement, only have union
+				if (subquery->commandType == CMD_SELECT && subquery->hasTargetSRFs == false && subquery->hasSubLinks == false
+					&& subquery->hasDistinctOn == false && subquery->hasRecursive == false && subquery->hasModifyingCTE == false
+					&& subquery->hasForUpdate == false && subquery->hasRowSecurity == false && subquery->cteList == NULL && list_length(subquery->rtable) == 1
+					&& subquery->jointree != NULL && list_length(subquery->jointree->fromlist) == 1) {
+					RangeTblEntry *rrte = (RangeTblEntry *) lfirst(list_head(subquery->rtable)); 
+					if (rrte->rtekind == RTE_SUBQUERY) {
+						bool secondLevelQueryHasWhere = false;
+						if (subquery->jointree->quals != NULL) {
+							secondLevelQueryHasWhere = true;
+						}
+						Query* ssubquery = rrte->subquery; // get second level subquery
+						// make sure this second level subquery is generate by multi table union on (without join or other complex query)
+						if (ssubquery != NULL && ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasTargetSRFs == false 
+							&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false && ssubquery->hasRecursive == false&& ssubquery->hasModifyingCTE == false
+							&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && ssubquery->jointree != NULL 
+							&& list_length(ssubquery->jointree->fromlist) == 0 && ssubquery->jointree->quals == NULL && ssubquery->setOperations != NULL 
+							&& ssubquery->hasWindowFuncs == false){
+							bool allPhyisicalTableFollowRules = true;
+							ListCell   *lc;
+							// union on involved tables can not has join or other complex query
+							foreach(lc, ssubquery->rtable){ 
+								RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+								if (srte->rtekind == RTE_SUBQUERY) {
+									Query* sssubquery = srte->subquery;
+			
+									if (sssubquery->commandType == CMD_SELECT && sssubquery->hasAggs == false && sssubquery->hasWindowFuncs == false
+										&& sssubquery->hasTargetSRFs == false && sssubquery->hasSubLinks == false && sssubquery->hasDistinctOn == false
+										&& sssubquery->hasRecursive == false && sssubquery->hasModifyingCTE == false && sssubquery->hasForUpdate == false
+										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
+										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
+										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+											allPhyisicalTableFollowRules = false;
+											break;
+										}
+									} else {
+										allPhyisicalTableFollowRules = false;
+										break;
+									}
+								}
+							}
+							if (allPhyisicalTableFollowRules) {
+
+								StringInfo targetListString = makeStringInfo();
+								pg_get_target_list_def(subquery, targetListString);
+			
+								StringInfo whereString = makeStringInfo();
+								pg_get_where_condition_def(subquery, whereString);
+								
+								StringInfo outWhereString = makeStringInfo();
+								pg_get_where_condition_def(query, outWhereString);
+								
+								if (IsLoggableLevel(DEBUG3)) {
+									ereport(DEBUG3, (errmsg("------subquery targetListString, targetList:%s", targetListString->data)));
+									ereport(DEBUG3, (errmsg("------subquery whereString, where condition:%s", whereString->data)));
+									ereport(DEBUG3, (errmsg("------subquery outWhereString, where condition:%s", outWhereString->data)));
+								}
+								foreach(lc, ssubquery->rtable){
+									RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+									if (srte->rtekind == RTE_SUBQUERY) {
+										Query* sssubquery = srte->subquery;
+										StringInfo subqueryFormatString = makeStringInfo();
+										pg_get_query_def(sssubquery, subqueryFormatString);
+										StringInfo regenerateSqlForWherePushDown = makeStringInfo();
+										appendStringInfo(regenerateSqlForWherePushDown,"SELECT * FROM (SELECT %s FROM (%s) test WHERE %s) test2 WHERE %s", 
+											targetListString->data, subqueryFormatString->data, whereString->data, outWhereString->data);
+										//Query *newGenerateQuery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+										srte->subquery = ParseQueryString(regenerateSqlForWherePushDown->data, NULL, 0);
+										// print log
+										//StringInfo subqueryString2 = makeStringInfo();
+										//pg_get_query_def(newGenerateQuery, subqueryString2);
+										if (IsLoggableLevel(DEBUG3)) {
+											ereport(DEBUG3, (errmsg("$$$$$ before regenerate query:%s" , ApplyLogRedaction(subqueryFormatString->data))));
+											ereport(DEBUG1, (errmsg("$$$$$ after regenerate query:%s" , ApplyLogRedaction(regenerateSqlForWherePushDown->data))));
+										}
+									}
+								}
+								ssubquery->stmt_len = -1;
+								ssubquery->stmt_location = -1;
+								subquery->jointree->quals = NULL;
+							}
+						}
+					}
 				}
 
 			}
-
-		}
-		 	
+		}	
 	}
 	/* descend into subqueries */
 	query_tree_walker(query, RecursivelyRegenerateSubqueryWalker, NULL, 0);
@@ -345,19 +455,31 @@ distributed_planner(Query *parse,
 		if (needsDistributedPlanning)
 		{
 			/* ------------- danny test begin ---------------  */
+			TimestampTz startTimestamp = GetCurrentTimestamp();
+			long durationSeconds = 0.0;
+			int durationMicrosecs = 0;
+			long durationMillisecs = 0.0;
 			RecursivelyRegenerateSubqueries(parse);
 			StringInfo subqueryString = makeStringInfo();
-
 			pg_get_query_def(parse, subqueryString);
+			// as we modify parse tree structure, some record like location is not right, thus need to regenerate this tree
+			parse = ParseQueryString(subqueryString->data, NULL, 0);
+			TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+							&durationMicrosecs);
+			durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+			durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 			if (IsLoggableLevel(DEBUG3)) {
 				ereport(DEBUG3, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
 			}
+			ereport(DEBUG1, (errmsg("-------run where condition and row_num() pust down, reparse query tree time cost:%d",
+				 durationMillisecs)));
 			rangeTableList = ExtractRangeTableEntryList(parse);
+			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ finish ExtractRangeTableEntryList")));
 			/* ------------- danny test end ---------------  */
 			fastPathRouterQuery = FastPathRouterQuery(parse, &distributionKeyValue);
 		}
 	}
-
+	//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.0 ")));
 	int rteIdCounter = 1;
 
 	DistributedPlanningContext planContext = {
@@ -414,12 +536,14 @@ distributed_planner(Query *parse,
 
 	PG_TRY();
 	{
+		//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.1 ")));
 		if (fastPathRouterQuery)
 		{
 			result = PlanFastPathDistributedStmt(&planContext, distributionKeyValue);
 		}
 		else
 		{
+			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.2 ")));
 			/*
 			 * Call into standard_planner because the Citus planner relies on both the
 			 * restriction information per table and parse tree transformations made by
@@ -430,12 +554,14 @@ distributed_planner(Query *parse,
 													   planContext.boundParams);
 			if (needsDistributedPlanning)
 			{
+				//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.3 ")));
 				result = PlanDistributedStmt(&planContext, rteIdCounter);
 			}
 			else if ((result = TryToDelegateFunctionCall(&planContext)) == NULL)
 			{
 				result = planContext.plan;
 			}
+			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.4 ")));
 		}
 	}
 	PG_CATCH();
