@@ -368,6 +368,9 @@ typedef struct SubPlanParallel {
 	bool writeBinarySignature;
 	int queryIndex;
 	int commandsSent;
+	int eventLoopTime;
+	int connectionStateMachineTime;
+	int transactionStateMachineTime;
 	uint64 rowsProcessed;
 	Datum *columnValues; 
 	bool *columnNulls; 
@@ -591,6 +594,7 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	subPlan->conn = PQconnectStart(conninfo);
 	subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
 	subPlan->connectionStart = GetCurrentTimestamp();
+	PQsetnonblocking(subPlan->conn, true);
 	/*
 	 * Ensure that subsequent calls to StartNodeUserDatabaseConnection get a
 	 * different connection.
@@ -789,7 +793,7 @@ StartSubPlanExecution(SubPlanParallel* session) {
 
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
-	ereport(DEBUG1, (errmsg("subPlanId:%d, walk into ReceiveResultsV2", session->subPlan->subPlanId)));
+	ereport(DEBUG3, (errmsg("subPlanId:%d, walk into ReceiveResultsV2", session->subPlan->subPlanId)));
 				
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
@@ -1039,8 +1043,9 @@ TransactionStateMachineV2(SubPlanParallel* session)
 	//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4  ########")));
 	do {
 		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
+		session->transactionStateMachineTime++;
 		currentState = session->transactionState;
-		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
+		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
 		if (!CheckConnectionReadyV2(session))
 		{
 			/* connection is busy, no state transitions to make */
@@ -1135,6 +1140,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 	MultiConnectionState currentState;
 	//ereport(DEBUG3, (errmsg("#########   walk into ConnectionStateMachineV2  1.3########")));
 	do {
+		subPlan->connectionStateMachineTime++;
 		currentState = subPlan->connectionState;
 		switch (currentState)
 		{
@@ -1165,7 +1171,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				//ereport(DEBUG1, (errmsg("ConnectionStateMachineV2:   MULTI_CONNECTION_CONNECTING, PQstatus: %d", status)));
 				if (status == CONNECTION_OK)
 				{
-					ereport(DEBUG1, (errmsg("subplan: %d ,ConnStatusType status == CONNECTION_OK", subPlan->subPlan->subPlanId)));
+					//ereport(DEBUG1, (errmsg("subplan: %d ,ConnStatusType status == CONNECTION_OK", subPlan->subPlan->subPlanId)));
 
 					execution->activeConnectionCount++;
 					execution->idleConnectionCount++;
@@ -1203,7 +1209,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				else if (pollMode == PGRES_POLLING_READING)
 				{
 					//sleep_ms(10);
-					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_READING", subPlan->subPlan->subPlanId)));
+					//ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_READING", subPlan->subPlan->subPlanId)));
 					if (subPlan->waitFlags == WL_SOCKET_READABLE) {
 						;
 					} else {
@@ -1216,7 +1222,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				else if (pollMode == PGRES_POLLING_WRITING)
 				{
 					//sleep_ms(10);
-					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_WRITING", subPlan->subPlan->subPlanId)));
+					//ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_WRITING", subPlan->subPlan->subPlanId)));
 					if (subPlan->waitFlags == WL_SOCKET_WRITEABLE) {
 						;
 					} else {
@@ -1228,7 +1234,7 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 				}
 				else
 				{  
-					ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_OK", subPlan->subPlan->subPlanId)));
+					//ereport(DEBUG1, (errmsg("subplan: %d , pollMode == PGRES_POLLING_OK", subPlan->subPlan->subPlanId)));
 					long durationSeconds = 0.0;
 					int durationMicrosecs = 0;
 					long durationMillisecs = 0.0;
@@ -1551,7 +1557,8 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		SubPlanParallel *session = (SubPlanParallel *) event->user_data;
 		session->latestUnconsumedWaitEvents = event->events;
-		ereport(DEBUG1, (errmsg("#########   ProcessWaitEventsV2, subPlanId:%d ,  events:%d ########", session->subPlan->subPlanId, event->events)));
+		session->eventLoopTime++;
+		//ereport(DEBUG1, (errmsg("#########   ProcessWaitEventsV2, subPlanId:%d ,  events:%d ########", session->subPlan->subPlanId, event->events)));
 		ConnectionStateMachineV2(session);
 	}
 }
@@ -1603,7 +1610,7 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			long timeout = 2000;
 			int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
 											  eventSetSize, WAIT_EVENT_CLIENT_READ);
-			ereport(DEBUG1, (errmsg("#########  eventCount :%d ########", eventCount)));
+			//ereport(DEBUG1, (errmsg("#########  eventCount :%d ########", eventCount)));
 			// int eventCount = WaitEventSetWait(execution->waitEventSet, timeout, events,
 			// 								  eventSetSize, WAIT_EVENT_CLIENT_READ);
 			ProcessWaitEventsV2(execution, events, eventCount, &cancellationReceived);
@@ -1622,6 +1629,8 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		// close connection
 		foreach_ptr(plan, execution->parallelTaskList)
 		{
+			ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
+				 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
 			if (plan->conn != NULL)
 			{
 				PQfinish(plan->conn);
@@ -1884,6 +1893,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->queryIndex = 0;
 						plan->rowsProcessed = 0;
 						plan->commandsSent = 0;
+						plan->eventLoopTime = 0;
+						plan->connectionStateMachineTime = 0;
+						plan->transactionStateMachineTime = 0;
 						plan->fileName = QueryResultFileName(resultId);
 						plan->writeToLocalFileTimeCost = 0;
 						CreateIntermediateResultsDirectory();
@@ -1940,6 +1952,45 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 	ereport(DEBUG1, (errmsg("-------start time: %lld, run splite subplan to parallel and sequence list time cost:%d" , startTime, durationMillisecs)));
+	//sleep(10);
+	// test cpu utility high problem
+	// int whileLoop = 500; 
+	// for (int i=0; i<whileLoop; i++) {
+	// 	char conninfo[100];
+	// 	// get first remote address
+	// 	SubPlanParallel* pSubPlan = NULL;
+	// 	foreach_ptr(pSubPlan, parallelJobList) {
+	// 		sprintf(conninfo, "host=%s dbname=postgres user=postgres password=password port=%d", pSubPlan->nodeName, pSubPlan->nodePort);
+	// 		ereport(DEBUG3, (errmsg("conninfo:%s",conninfo)));
+	// 		break;
+	// 	}
+	// 	// create connect 
+	// 	foreach_ptr(pSubPlan, parallelJobList) {
+	// 		pSubPlan->conn  = PQconnectStart(conninfo);
+	// 		ConnStatusType  ConnType = PQstatus(pSubPlan->conn);
+	// 		ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
+	// 		if (CONNECTION_BAD == ConnType) {
+	// 			ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
+	// 			return;
+	// 		}
+	// 		PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
+	// 		while (true)
+	// 		{
+	// 			polltype = PQconnectPoll(pSubPlan->conn);
+	// 			if (polltype == PGRES_POLLING_FAILED) {
+	// 				ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
+	// 				return;
+	// 			}
+	// 			if (polltype == PGRES_POLLING_OK)
+	// 				break;
+	// 		}
+	// 	}
+	// 	// disable connect
+	// 	foreach_ptr(pSubPlan, parallelJobList) {
+	// 		/* close the connection to the database and cleanup */
+	// 		PQfinish(pSubPlan->conn);
+	// 	}
+	// }
 
 	startTimestamp = GetCurrentTimestamp();
 	startTime = getTimeMilliseconds();
@@ -1978,6 +2029,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 		if (polltype == PGRES_POLLING_OK)
 	// 			break;
 	// 	}
+	// }
+	// sleep(20);
+	// foreach_ptr(pSubPlan, parallelJobList) {
 	// 	int rc1 = PQsendQueryParams(pSubPlan->conn, pSubPlan->queryStringLazy, 0, NULL,
 	// 						   NULL, NULL, NULL, 1);
 	// }
@@ -2140,13 +2194,17 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 	}
 	// 	PQclear(res1);
 	// 	/* close the connection to the database and cleanup */
-	// 	PQfinish(pSubPlan->conn);
+	// 	//PQfinish(pSubPlan->conn);
 	// 	//FileClose(pSubPlan->fc.fd);
 	// 	if (IsLoggableLevel(DEBUG3)) {
 	// 		ereport(DEBUG3, (errmsg("PQfinish(conn1);")));
 	// 	}
 	// 	ereport(DEBUG1, (errmsg("-------subplan %d, run write to local file time cost:%d" , pSubPlan->subPlan->subPlanId, durationMillisecsForWrite)));
 	// 	durationMillisecsForWriteTotal += durationMillisecsForWrite;
+	// }
+	// sleep(20);
+	// foreach_ptr(pSubPlan, parallelJobList) {
+	// 	PQfinish(pSubPlan->conn);
 	// }
 	// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
 	// 						&durationMicrosecs);
