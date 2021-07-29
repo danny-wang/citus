@@ -845,7 +845,7 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		// 	session->queryIndex++;
 		// 	continue;
 		// }
-		//else if (resultStatus != PGRES_SINGLE_TUPLE)
+		// else if (resultStatus != PGRES_SINGLE_TUPLE)
 		else if (resultStatus != PGRES_TUPLES_OK)
 		{
 			session->queryIndex++;
@@ -1045,7 +1045,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.1  ########")));
 		session->transactionStateMachineTime++;
 		currentState = session->transactionState;
-		ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
+		//ereport(DEBUG3, (errmsg("#########   walk into TransactionStateMachineV2  1.4.2 ,session->transactionState:%d ########",session->transactionState)));
 		if (!CheckConnectionReadyV2(session))
 		{
 			/* connection is busy, no state transitions to make */
@@ -1108,6 +1108,20 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				 	session->subPlan->subPlanId, timestamptz_to_str(session->connectionStart), session->connectReadyTimeCost,
 				 	session->sendQueryTimeCost, session->queryDoneTimeCost, session->rowsProcessed, session->queryIndex,
 				 	session->writeToLocalFileTimeCost)));
+				if (session->columnValues != NULL) {
+					pfree(session->columnValues);
+				}
+				if (session->columnNulls != NULL) {
+					pfree(session->columnNulls);
+				}
+				if (session->columeSizes != NULL) {
+					pfree(session->columeSizes);
+				}
+				if (session->typeArray != NULL) {
+					pfree(session->typeArray);
+				}
+	
+				ereport(DEBUG3, (errmsg("#########  testtesttesttesttesttesttest ############")));
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
 				execution->unfinishedTaskCount--;
@@ -1295,7 +1309,6 @@ ConnectionStateMachineV2(SubPlanParallel* subPlan)
 			case MULTI_CONNECTION_FAILED:
 			{
 				/* connection failed or was lost */
-				int totalConnectionCount = list_length(execution->parallelTaskList);
 				execution->failedConnectionCount++;
 
 				execution->unfinishedTaskCount--;
@@ -1626,6 +1639,9 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			FreeWaitEventSet(execution->waitEventSet);
 			execution->waitEventSet = NULL;
 		}
+		if (execution->copyOutState != NULL) {
+			pfree(execution->copyOutState);
+		}
 		// close connection
 		foreach_ptr(plan, execution->parallelTaskList)
 		{
@@ -1636,6 +1652,7 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 				PQfinish(plan->conn);
 				plan->conn = NULL;
 			}
+			pfree(plan);
 		}
 		//CleanUpSessions(execution);
 	}
@@ -1662,6 +1679,22 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		{
 			FreeWaitEventSet(execution->waitEventSet);
 			execution->waitEventSet = NULL;
+		}
+		if (execution->copyOutState != NULL) {
+			pfree(execution->copyOutState);
+		}
+		// close connection
+		SubPlanParallel *plan = NULL;
+		foreach_ptr(plan, execution->parallelTaskList)
+		{
+			ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
+				 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
+			if (plan->conn != NULL)
+			{
+				PQfinish(plan->conn);
+				plan->conn = NULL;
+			}
+			pfree(plan);
 		}
 
 		PG_RE_THROW();
@@ -1898,6 +1931,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 						plan->transactionStateMachineTime = 0;
 						plan->fileName = QueryResultFileName(resultId);
 						plan->writeToLocalFileTimeCost = 0;
+						plan->columnValues = NULL;
+						plan->columnNulls = NULL;
+						plan->columeSizes = NULL;
+						plan->typeArray = NULL;
+
 						CreateIntermediateResultsDirectory();
 						plan->fc = FileCompatFromFileStart(FileOpenForTransmit(plan->fileName,
 																				 fileFlags,
@@ -1952,46 +1990,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 	ereport(DEBUG1, (errmsg("-------start time: %lld, run splite subplan to parallel and sequence list time cost:%d" , startTime, durationMillisecs)));
-	//sleep(10);
-	// test cpu utility high problem
-	// int whileLoop = 500; 
-	// for (int i=0; i<whileLoop; i++) {
-	// 	char conninfo[100];
-	// 	// get first remote address
-	// 	SubPlanParallel* pSubPlan = NULL;
-	// 	foreach_ptr(pSubPlan, parallelJobList) {
-	// 		sprintf(conninfo, "host=%s dbname=postgres user=postgres password=password port=%d", pSubPlan->nodeName, pSubPlan->nodePort);
-	// 		ereport(DEBUG3, (errmsg("conninfo:%s",conninfo)));
-	// 		break;
-	// 	}
-	// 	// create connect 
-	// 	foreach_ptr(pSubPlan, parallelJobList) {
-	// 		pSubPlan->conn  = PQconnectStart(conninfo);
-	// 		ConnStatusType  ConnType = PQstatus(pSubPlan->conn);
-	// 		ereport(DEBUG3, (errmsg("ConnStatusType:%d",ConnType)));
-	// 		if (CONNECTION_BAD == ConnType) {
-	// 			ereport(DEBUG3, (errmsg("bad ConnStatusType:%d",ConnType)));
-	// 			return;
-	// 		}
-	// 		PostgresPollingStatusType polltype = PGRES_POLLING_FAILED;
-	// 		while (true)
-	// 		{
-	// 			polltype = PQconnectPoll(pSubPlan->conn);
-	// 			if (polltype == PGRES_POLLING_FAILED) {
-	// 				ereport(DEBUG3, (errmsg("bad PostgresPollingStatusType:%d",polltype)));
-	// 				return;
-	// 			}
-	// 			if (polltype == PGRES_POLLING_OK)
-	// 				break;
-	// 		}
-	// 	}
-	// 	// disable connect
-	// 	foreach_ptr(pSubPlan, parallelJobList) {
-	// 		/* close the connection to the database and cleanup */
-	// 		PQfinish(pSubPlan->conn);
-	// 	}
-	// }
-
+	//sleep(50000);
 	startTimestamp = GetCurrentTimestamp();
 	startTime = getTimeMilliseconds();
 

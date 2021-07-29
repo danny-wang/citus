@@ -49,6 +49,7 @@
 /*  danny test beign */
 #include "distributed/log_utils.h"
 #include "nodes/print.h"
+#include <unistd.h>
 /*  danny test end */
 #include "executor/executor.h"
 #include "nodes/makefuncs.h"
@@ -79,6 +80,18 @@ static uint64 NextPlanId = 1;
 /* ------------- danny test begin ---------------  */
 #define SECOND_TO_MILLI_SECOND 1000
 #define MICRO_TO_MILLI_SECOND 0.001
+static const char data_mem[] = "VmRSS:";
+int DistributedPlannerRunTime = 0;
+int Pid = -1;
+typedef struct PerNodeUnionSubQueries
+{
+	char *nodeName;
+	uint32 nodePort;
+	uint32 nodeId;
+	int  rtindex;
+	List *subquerise;
+} PerNodeUnionSubQueries;
+//static bool RegenerateSubqueries = false;
 /* ------------- danny test end ---------------  */
 
 /* keep track of planner call stack levels */
@@ -137,18 +150,419 @@ static PlannedStmt * PlanDistributedStmt(DistributedPlanningContext *planContext
 static RTEListProperties * GetRTEListProperties(List *rangeTableList);
 static List * TranslatedVars(PlannerInfo *root, int relationIndex);
 /* ------------- danny test begin ---------------  */
+static void print_mem(int pid, char *func_name);
+static bool IsUnionAllLinkQuery(Query *query, Node *node);
+static bool IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(Query *query, int *level);
+static void ExpandOneLevelSimpleViewInvolvedRteList(RangeTblEntry *rte, List **rteList);
+static void ExpandTwoLevelSimpleViewInvolvedRteList(RangeTblEntry *rte, List **rteList);
+static void ExpandSimpleViewInvolvedTableToUpperLevel(Query *query, Node *node, List **rteList, bool *signal);
 static bool RecursivelyRegenerateSubqueries(Query *query);
 static bool RecursivelyRegenerateSubqueryWalker(Node *node);
+static bool RecursivelyPlanSetOperationsV2Helper(Query *query, Node *node, int* nodeIds, int* signal, 
+										int* nodeIdsLengh, PerNodeUnionSubQueries *perNode);
+static bool RecursivelyPlanSetOperationsV2(Query *query, Node *node);
+static bool RecursivelyRegenerateUnionAll(Query *query); 
+static bool RecursivelyRegenerateUnionAllWalker(Node *node);
+
+static void print_mem(int pid, char *func_name)
+{
+    FILE *stream;
+    char cache[256];
+    char mem_info[64];
+    ereport(DEBUG1, (errmsg("%s", func_name)));
+    sprintf(mem_info, "/proc/%d/status", pid);
+    stream = fopen(mem_info, "r");
+    if (stream == NULL) {
+        return;
+    }
+
+    while(fscanf(stream, "%s", cache) != EOF) {
+        if (strncmp(cache, data_mem, sizeof(data_mem)) == 0) {
+            if (fscanf(stream, "%s", cache) != EOF) {
+                ereport(DEBUG1, (errmsg("hw memory[%s]<=======", cache)));
+                break;
+            }
+        } 
+    }
+    fclose(stream); 
+    return;
+}
+
+static bool IsUnionAllLinkQuery(Query *query, Node *node) {
+	if (IsA(node, SetOperationStmt)) {
+		SetOperationStmt *setOperations = (SetOperationStmt *) node;
+		if (setOperations->op != SETOP_UNION || setOperations->all != true) {
+			return false;
+		}
+		bool sign = IsUnionAllLinkQuery(query, setOperations->larg);
+		if (sign == false) {
+			return sign;
+		}
+		sign = IsUnionAllLinkQuery(query, setOperations->rarg);
+		if (sign == false) {
+			return sign;
+		}
+	} else if (IsA(node, RangeTblRef)) {
+		RangeTblRef *rangeTableRef = (RangeTblRef *) node;
+		RangeTblEntry *rangeTableEntry = rt_fetch(rangeTableRef->rtindex,
+												  query->rtable);
+		if (rangeTableEntry->rtekind != RTE_SUBQUERY) {
+			return false;
+		}
+	} else {
+		ereport(ERROR, (errmsg("unexpected node type (%d) while "
+							   "expecting set operations or "
+							   "range table references", nodeTag(node))));
+	}
+	return true;
+} 
+
+/* SimpleViewQuery defination: some tables linked by union all, and each query not have join
+ * SimpleViewQuery defination eg: select xxx from tableA where yyy union all select xxx from tableB where yyy
+ * OneLevel:
+ * eg: select xxx from view where yyy
+ * TwoLevel:
+ * eg: select xxx from (select sss from view where yyy) where zzz
+ * condition sss only allow window func row_number()
+*/
+static bool IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(Query *query, int *level) {
+	if (query->commandType == CMD_SELECT && query->hasWindowFuncs == false && query->hasTargetSRFs == false && query->hasSubLinks == false
+		&& query->hasDistinctOn == false && query->hasRecursive == false && query->hasModifyingCTE == false
+		&& query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL && list_length(query->rtable) == 1
+		&& query->jointree != NULL && list_length(query->jointree->fromlist) == 1 && list_length(query->groupClause) == 0 
+		&& list_length(query->groupingSets) == 0 && list_length(query->distinctClause) == 0) {
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(list_head(query->rtable));
+		if (rte->rtekind == RTE_SUBQUERY) {  
+			Query* subquery = rte->subquery;
+			if (subquery->hasWindowFuncs == false) { // check if satisfy OneLevel condition 
+				// subquery don't have from and where statement, only have union all
+				if (subquery->commandType == CMD_SELECT && subquery->hasAggs == false && subquery->hasTargetSRFs == false
+					&& subquery->hasSubLinks == false && subquery->hasDistinctOn == false && subquery->hasRecursive == false 
+					&& subquery->hasModifyingCTE == false && subquery->hasForUpdate == false && subquery->hasRowSecurity == false 
+					&& subquery->cteList == NULL && subquery->jointree != NULL && list_length(subquery->jointree->fromlist) == 0 
+					&& subquery->jointree->quals == NULL && subquery->setOperations != NULL
+					&& IsUnionAllLinkQuery(subquery, (Node *) subquery->setOperations)) {
+					// Check whether the definition of SimpleViewQuery is met
+					bool allPhyisicalTableFollowRules = true;
+					ListCell *lc;
+					foreach(lc, subquery->rtable){
+						RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+						if (srte->rtekind == RTE_SUBQUERY) {
+							Query* ssubquery = srte->subquery;
+					
+							if (ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasWindowFuncs == false
+								&& ssubquery->hasTargetSRFs == false && ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false
+								&& ssubquery->hasRecursive == false && ssubquery->hasModifyingCTE == false && ssubquery->hasForUpdate == false
+								&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
+								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL) {
+								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+									allPhyisicalTableFollowRules = false;
+									break;
+								}
+							} else {
+								allPhyisicalTableFollowRules = false;
+								break;
+							}
+						} 
+					}
+					if (allPhyisicalTableFollowRules) {
+						*level = 1;
+						return true;
+					} 
+				}
+				// check if satisfy TwoLevel condition 
+				// subquery don't have from and where statement, only have union
+				if (subquery->commandType == CMD_SELECT && subquery->hasTargetSRFs == false && subquery->hasSubLinks == false
+					&& subquery->hasDistinctOn == false && subquery->hasRecursive == false && subquery->hasModifyingCTE == false
+					&& subquery->hasForUpdate == false && subquery->hasRowSecurity == false && subquery->cteList == NULL 
+					&& list_length(subquery->rtable) == 1 && subquery->jointree != NULL && list_length(subquery->jointree->fromlist) == 1) {
+					RangeTblEntry *rrte = (RangeTblEntry *) lfirst(list_head(subquery->rtable)); 
+					if (rrte->rtekind == RTE_SUBQUERY) {
+						// bool secondLevelQueryHasWhere = false;
+						// if (subquery->jointree->quals != NULL) {
+						// 	secondLevelQueryHasWhere = true;
+						// }
+						Query* ssubquery = rrte->subquery; // get second level subquery
+						// make sure this second level subquery is generate by multi table union on (without join or other complex query)
+						if (ssubquery != NULL && ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasTargetSRFs == false 
+							&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false && ssubquery->hasRecursive == false
+							&& ssubquery->hasModifyingCTE == false && ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false 
+							&& ssubquery->cteList == NULL && ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 0 
+							&& ssubquery->jointree->quals == NULL && ssubquery->setOperations != NULL && ssubquery->hasWindowFuncs == false) {
+							bool allPhyisicalTableFollowRules = true;
+							ListCell *lc;
+							// union on involved tables can not has join or other complex query
+							foreach(lc, ssubquery->rtable){ 
+								RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+								if (srte->rtekind == RTE_SUBQUERY) {
+									Query* sssubquery = srte->subquery;
+			
+									if (sssubquery->commandType == CMD_SELECT && sssubquery->hasAggs == false && sssubquery->hasWindowFuncs == false
+										&& sssubquery->hasTargetSRFs == false && sssubquery->hasSubLinks == false && sssubquery->hasDistinctOn == false
+										&& sssubquery->hasRecursive == false && sssubquery->hasModifyingCTE == false && sssubquery->hasForUpdate == false
+										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
+										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
+										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+											allPhyisicalTableFollowRules = false;
+											break;
+										}
+									} else {
+										allPhyisicalTableFollowRules = false;
+										break;
+									}
+								} 
+							}
+							if (allPhyisicalTableFollowRules) {
+								*level = 2;
+								return true;
+							}
+						}
+					}
+				}
+			} else { // check if satisfy TwoLevel condition 
+				// check if the window func is 3100(row_number)
+				TargetEntry *te = NULL;
+				foreach_ptr(te, subquery->targetList) {
+					if (te->expr != NULL && IsA(te->expr, WindowFunc)) {
+						WindowFunc *wf = (WindowFunc *) te->expr;
+						if (wf->winfnoid != 3100) {  // window function: row_number()
+							if (IsLoggableLevel(DEBUG3)) {
+								ereport(DEBUG1, (errmsg("wf->winfnoid != 3100, wf->winfnoid:%d" , wf->winfnoid)));
+							}
+							return false;
+						}
+					}
+				}
+				// subquery don't have from and where statement, only have union
+				if (subquery->commandType == CMD_SELECT && subquery->hasTargetSRFs == false && subquery->hasSubLinks == false
+					&& subquery->hasDistinctOn == false && subquery->hasRecursive == false && subquery->hasModifyingCTE == false
+					&& subquery->hasForUpdate == false && subquery->hasRowSecurity == false && subquery->cteList == NULL 
+					&& list_length(subquery->rtable) == 1 && subquery->jointree != NULL && list_length(subquery->jointree->fromlist) == 1) {
+					RangeTblEntry *rrte = (RangeTblEntry *) lfirst(list_head(subquery->rtable)); 
+					if (rrte->rtekind == RTE_SUBQUERY) {
+						// bool secondLevelQueryHasWhere = false;
+						// if (subquery->jointree->quals != NULL) {
+						// 	secondLevelQueryHasWhere = true;
+						// }
+						Query* ssubquery = rrte->subquery; // get second level subquery
+						// make sure this second level subquery is generate by multi table union on (without join or other complex query)
+						if (ssubquery != NULL && ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasTargetSRFs == false 
+							&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false && ssubquery->hasRecursive == false
+							&& ssubquery->hasModifyingCTE == false && ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false 
+							&& ssubquery->cteList == NULL && ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 0 
+							&& ssubquery->jointree->quals == NULL && ssubquery->setOperations != NULL && ssubquery->hasWindowFuncs == false) {
+							bool allPhyisicalTableFollowRules = true;
+							ListCell *lc;
+							// union on involved tables can not has join or other complex query
+							foreach(lc, ssubquery->rtable){ 
+								RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+								if (srte->rtekind == RTE_SUBQUERY) {
+									Query* sssubquery = srte->subquery;
+			
+									if (sssubquery->commandType == CMD_SELECT && sssubquery->hasAggs == false && sssubquery->hasWindowFuncs == false
+										&& sssubquery->hasTargetSRFs == false && sssubquery->hasSubLinks == false && sssubquery->hasDistinctOn == false
+										&& sssubquery->hasRecursive == false && sssubquery->hasModifyingCTE == false && sssubquery->hasForUpdate == false
+										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
+										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
+										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+											allPhyisicalTableFollowRules = false;
+											break;
+										}
+									} else {
+										allPhyisicalTableFollowRules = false;
+										break;
+									}
+								} 
+							}
+							if (allPhyisicalTableFollowRules) {
+								*level = 2;
+								return true;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	return false;
+}
+
+// generate new rte to rteList. Raise the tables that involved by inner view to the outer union all for one level query
+static void ExpandOneLevelSimpleViewInvolvedRteList(RangeTblEntry *rte, List **rteList) {
+	RangeTblEntry *rteExample = copyObject(rte);
+	
+	RangeTblEntry *levelOneSrte = (RangeTblEntry *) lfirst(list_head(rte->subquery->rtable)); 
+	ListCell   *lc;
+	foreach(lc, levelOneSrte->subquery->rtable) {  // each table that view involved
+		RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+		if (srte->rtekind == RTE_SUBQUERY) {
+			RangeTblEntry *newRte = copyObject(rteExample);
+			RangeTblEntry *srte2 = (RangeTblEntry *) lfirst(list_head(newRte->subquery->rtable)); 
+			srte2->subquery = copyObject(srte->subquery);
+			//srte2->subquery = srte->subquery;
+			if (IsLoggableLevel(DEBUG3)) {
+				//elog_node_display(LOG, "new Query parse tree", newRte->subquery, Debug_pretty_print);
+				//ereport(DEBUG3, (errmsg("OneLevelSimpleViewInvolved new Query sql")));
+				//StringInfo subqueryString = makeStringInfo();
+				//pg_get_query_def(newRte->subquery, subqueryString);
+				//ereport(DEBUG3, (errmsg("OneLevelSimpleViewInvolved new Query sql:%s",ApplyLogRedaction(subqueryString->data))));
+			}
+			*rteList = lappend(*rteList, newRte);	
+		}
+		//ereport(DEBUG3, (errmsg("1.5  retList:%d, length:%d", *rteList, list_length(*rteList))));
+	}
+	return;
+}
+
+// generate new rte to rteList. Raise the inner view involved tables to the outer union all for two level query
+static void ExpandTwoLevelSimpleViewInvolvedRteList(RangeTblEntry *rte, List **rteList) {
+	RangeTblEntry *rteExample = copyObject(rte);
+	
+	RangeTblEntry *levelOneSrte = (RangeTblEntry *) lfirst(list_head(rte->subquery->rtable)); 
+	RangeTblEntry *levelTwoSrte = (RangeTblEntry *) lfirst(list_head(levelOneSrte->subquery->rtable)); 
+	ListCell   *lc;
+	foreach(lc, levelTwoSrte->subquery->rtable) {  // each table that view involved
+		RangeTblEntry *srte = (RangeTblEntry *) lfirst(lc);
+		if (srte->rtekind == RTE_SUBQUERY) {
+			RangeTblEntry *newRte = copyObject(rteExample);
+			RangeTblEntry *srte2 = (RangeTblEntry *) lfirst(list_head(newRte->subquery->rtable)); 
+			srte2 = (RangeTblEntry *) lfirst(list_head(srte2->subquery->rtable)); 
+			// srte2->subquery = copyObject(srte->subquery);
+			srte2->subquery = srte->subquery;
+			if (IsLoggableLevel(DEBUG3)) {
+				//elog_node_display(LOG, "new Query parse tree", newRte->subquery, Debug_pretty_print);
+				//ereport(DEBUG3, (errmsg("OneLevelSimpleViewInvolved new Query sql")));
+				//StringInfo subqueryString = makeStringInfo();
+				//pg_get_query_def(newRte->subquery, subqueryString);
+				//ereport(DEBUG3, (errmsg("TwoLevelSimpleViewInvolved new Query sql:%s",ApplyLogRedaction(subqueryString->data))));
+			}
+			*rteList = lappend(*rteList, newRte);
+		}
+		//ereport(DEBUG3, (errmsg("1.5  retList:%d, length:%d", *rteList, list_length(*rteList))));
+	}
+}
+
+// Promote the table involved in the view to the same layer as the outer union all, regenerate rteList
+static void ExpandSimpleViewInvolvedTableToUpperLevel(Query *query, Node *node, List **rteList, bool *signal) {
+	if (IsA(node, SetOperationStmt))
+	{
+		SetOperationStmt *setOperations = (SetOperationStmt *) node;
+		ExpandSimpleViewInvolvedTableToUpperLevel(query, setOperations->larg, rteList, signal);
+		ExpandSimpleViewInvolvedTableToUpperLevel(query, setOperations->rarg, rteList, signal);
+	} else if (IsA(node, RangeTblRef)) {
+		RangeTblRef *rangeTableRef = (RangeTblRef *) node;
+		RangeTblEntry *rangeTableEntry = rt_fetch(rangeTableRef->rtindex,
+												  query->rtable);
+		if (rangeTableEntry->rtekind != RTE_SUBQUERY) {
+			return;
+		}
+		Query *subquery = rangeTableEntry->subquery;
+		int level = 0;
+		if (IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(subquery, &level)) {
+			*signal = true; 
+			if (level == 1) {
+				ExpandOneLevelSimpleViewInvolvedRteList(rangeTableEntry, rteList);
+			} else if (level == 2) {
+				ExpandTwoLevelSimpleViewInvolvedRteList(rangeTableEntry, rteList);
+			} else {
+				ereport(ERROR, (errmsg("unexpected level (%d) while "
+							   "run function IsOneLevelOrTwoLevelSelectFromSimpleViewQuery", level)));
+			}
+		} else {
+			*rteList = lappend(*rteList, rangeTableEntry);
+		}
+	} else {
+		ereport(ERROR, (errmsg("unexpected node type (%d) while "
+							   "expecting set operations or "
+							   "range table references", nodeTag(node))));
+	}
+}
 
 /*
  * RecursivelyRegenerateSubqueries finds subqueries, if subquerise match target pattern, regenerate them.
  * current pattern: 
- * 1. select XXX from subquery(some tables linked by union, and each query not have join) where XXX. For this pattern, where condition can be push down
- * 2. select XXX from (select YYY(include window func row_number()) from subquery(some tables linked by union, and each query not have join) where XXX) q1 where XXX, both , where condition can be push down
+ * 1. if (select XXX(not allow window func) from subquery(some tables linked by union all, 
+ *  and each query not have join) where XXX) is a component of Union all, expand the tables involved in the subquery to the upper level
+ * 2. if (select  XXX from(select YYY(include window func row_number()) from subquery(some tables linked by union, and each query not have join) where XXX) q1 
+ *  where XXX), is a component of Union all, Expand the tables involved in the subquery to the upper level
+ * 3. select XXX from subquery(some tables linked by union, and each query not have join) where XXX. For this pattern, where condition can be push down
+ * 4. select XXX from (select YYY(include window func row_number()) from subquery(some tables linked by union, and each query not have join) where XXX) q1 where XXX,
+ *  both , where condition can be push down
  */
 static bool
 RecursivelyRegenerateSubqueries(Query *query) {
 	//elog_node_display(LOG, "Query parse tree", query, Debug_pretty_print);
+	if (query->commandType == CMD_SELECT && query->utilityStmt == NULL && query->hasAggs == false && query->hasWindowFuncs == false 
+		&& query->hasTargetSRFs == false && query->hasSubLinks == false && query->hasDistinctOn == false && query->hasRecursive == false 
+		&& query->hasModifyingCTE == false && query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL
+		&& query->jointree != NULL && list_length(query->jointree->fromlist) == 0 && query->jointree->quals == NULL && query->setOperations != NULL
+		&& IsUnionAllLinkQuery(query, (Node *) query->setOperations)) { //is UNION ALL Query
+
+		// for each subquery which satisfies condition 1 or 2, expand the tables involved in the subquery to the upper level
+		List *rteList = NIL; 
+		//ereport(DEBUG3, (errmsg("1.0 retList:%d, length:%d", rteList, list_length(rteList))));
+		bool signal = false;  // Identify whether the query tree needs to be rebuilt
+		ExpandSimpleViewInvolvedTableToUpperLevel(query, (Node *) query->setOperations, &rteList, &signal);
+		//ereport(DEBUG3, (errmsg("2.0 retList:%d, length:%d", rteList, list_length(rteList))));
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("############### regenerate rteList length: %d  ################", list_length(rteList))));
+		}
+		
+		if (signal && list_length(rteList) > 0) {
+			// according rteList, regenerate query tree
+			//ereport(DEBUG3, (errmsg("############### 1.0  ################")));
+			ListCell   *lc;
+			int i = 0;
+			SetOperationStmt *newSetOperStmt = copyObject(query->setOperations);
+			//elog_node_display(LOG, "newSetOperStmt  parse tree", newSetOperStmt, Debug_pretty_print);
+			newSetOperStmt->larg = NULL;
+			newSetOperStmt->rarg = NULL;
+			SetOperationStmt *example =  copyObject(newSetOperStmt);
+			//elog_node_display(LOG, "example  parse tree", example, Debug_pretty_print);
+			SetOperationStmt *head = newSetOperStmt; 
+			//ereport(DEBUG3, (errmsg("############### 1.1  ################")));
+			foreach(lc, rteList) {
+				//ereport(DEBUG3, (errmsg("############### 1.2  ################")));
+				RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(lc);
+				// construct SetOperationStmt
+				if (i == 0) {
+					RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+       		     	nextRangeTableRef->rtindex = 1;
+					newSetOperStmt->larg = nextRangeTableRef;
+				} else if (i==1) {
+					RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+       		     	nextRangeTableRef->rtindex = 2;
+					newSetOperStmt->rarg = nextRangeTableRef;
+				} else {
+					SetOperationStmt *newNode = copyObject(example);
+					newNode->larg = head;
+					RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+					nextRangeTableRef->rtindex = i+1;
+					newNode->rarg = nextRangeTableRef;
+					head = newNode;
+				}
+				//elog_node_display(LOG, "-----head  parse tree", head, Debug_pretty_print);
+				i++;
+			}
+			//ereport(DEBUG3, (errmsg("############### 1.3  ################")));
+			//elog_node_display(LOG, "rtable parse tree", rteList, Debug_pretty_print);
+			//elog_node_display(LOG, "setOperations parse tree", head, Debug_pretty_print);
+			query->rtable = rteList;
+			query->setOperations = head;
+			query->stmt_location = -1;
+			query->stmt_len = -1;
+			//elog_node_display(LOG, "Query parse tree", query, Debug_pretty_print);
+			if (IsLoggableLevel(DEBUG3)) {
+				// StringInfo newString = makeStringInfo();
+				// pg_get_query_def(query, newString);
+				// ereport(DEBUG3, (errmsg("##### RecursivelyRegenerateSubqueries   ExpandSimpleViewInvolvedTableToUpperLevel  new sql: %s", newString->data)));
+			}
+			return true;
+		}
+	} 
 	if (query->commandType == CMD_SELECT && query->hasWindowFuncs == false && query->hasTargetSRFs == false && query->hasSubLinks == false
 		&& query->hasDistinctOn == false && query->hasRecursive == false && query->hasModifyingCTE == false
 		&& query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL && list_length(query->rtable) == 1
@@ -395,9 +809,10 @@ RecursivelyRegenerateSubqueryWalker(Node *node)
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3))
 		{
-			StringInfo subqueryString = makeStringInfo();
-			pg_get_query_def(query, subqueryString);
-			ereport(DEBUG3, (errmsg("------walk into RecursivelyRegenerateSubqueryWalker and node is query, query:%s",ApplyLogRedaction(subqueryString->data))));
+			ereport(DEBUG3, (errmsg("------walk into RecursivelyRegenerateSubqueryWalker and node is query")));
+			//StringInfo subqueryString = makeStringInfo();
+			//pg_get_query_def(query, subqueryString);
+			//ereport(DEBUG3, (errmsg("------walk into RecursivelyRegenerateSubqueryWalker and node is query, query:%s",ApplyLogRedaction(subqueryString->data))));
 		}
 		/* ------------- danny test  end---------------  */
 		/*
@@ -412,6 +827,260 @@ RecursivelyRegenerateSubqueryWalker(Node *node)
 	//ereport(DEBUG3, (errmsg("%%%%%%%%%%%%%%%%%%ready to run expression_tree_walker,nodetag:%d,level: :%d ",nodeTag(node),context->level)));
 	return expression_tree_walker(node, RecursivelyRegenerateSubqueryWalker, NULL);
 }
+
+static bool RecursivelyPlanSetOperationsV2Helper(Query *query, Node *node, int* nodeIds, int* signal, int* nodeIdsLengh, PerNodeUnionSubQueries *perNode) {
+	if (IsA(node, SetOperationStmt))
+	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2Helper is SetOperationStmt")));
+		}
+		/* ------------- danny test  end---------------  */
+		SetOperationStmt *setOperations = (SetOperationStmt *) node;
+
+		bool sign = RecursivelyPlanSetOperationsV2Helper(query, setOperations->larg, nodeIds, signal, nodeIdsLengh, perNode);
+		if (sign == false) {
+			return sign;
+		}
+		sign = RecursivelyPlanSetOperationsV2Helper(query, setOperations->rarg, nodeIds, signal, nodeIdsLengh, perNode);
+		if (sign == false) {
+			return sign;
+		}
+	} else if (IsA(node, RangeTblRef))
+	{
+		/* ------------- danny test begin ---------------  */
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2Helper is RangeTblRef")));
+		}
+		/* ------------- danny test  end---------------  */
+		RangeTblRef *rangeTableRef = (RangeTblRef *) node;
+		RangeTblEntry *rangeTableEntry = rt_fetch(rangeTableRef->rtindex,
+												  query->rtable);
+		if (rangeTableEntry->rtekind != RTE_SUBQUERY) {
+			return false;
+		}
+		Query *subquery = rangeTableEntry->subquery;
+		if (!FindNodeMatchingCheckFunction((Node *) subquery, IsDistributedTableRTE)) {
+			return false;
+		}
+		List *rangeTableList = ExtractRangeTableEntryList(subquery);
+		char *nodeName = NULL;
+		uint32 nodePort = 0;
+		uint32 nodeId  = 0;
+		ListCell *rangeTableCell = NULL;
+		bool findFirstRTE = false;
+		foreach(rangeTableCell, rangeTableList) {
+			RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
+			}
+			Oid distributedTableId = rte->relid;
+			if (rte->rtekind == RTE_RELATION && rte->relkind == 'r') {
+				Oid distributedTableId = rte->relid;
+				if (findFirstRTE == true) {
+					return false;
+				}
+				findFirstRTE = true;
+				CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
+				if (cacheEntry->shardIntervalArrayLength != 1) {
+					return false;
+				}
+				ShardInterval *newShardInterval = CopyShardInterval(cacheEntry->sortedShardIntervalArray[0]);
+				if (IsLoggableLevel(DEBUG3)) {
+					ereport(DEBUG3, (errmsg("distributedTableId:%d, shardId:%d", distributedTableId, newShardInterval->shardId)));
+				}
+				List *shardPlacementList = ActiveShardPlacementList(newShardInterval->shardId);
+				ShardPlacement *shardPlacement = NULL;
+				foreach_ptr(shardPlacement, shardPlacementList)
+				{
+					if (IsLoggableLevel(DEBUG3)) {
+						ereport(DEBUG3, (errmsg("nodeName:%s, nodePort:%d, nodeId:%d", shardPlacement->nodeName, shardPlacement->nodePort, shardPlacement->nodeId)));
+					}
+					if (shardPlacement->shardState == SHARD_STATE_ACTIVE)
+					{
+						if (signal[shardPlacement->nodeId] == 0) {
+							// PerNodeUnionSubQueries *node = (PerNodeUnionSubQueries*) palloc0(sizeof(PerNodeUnionSubQueries));
+							// node->nodeName = shardPlacement->nodeName;
+							// node->nodePort = shardPlacement->nodePort;
+							// node->nodeId = shardPlacement->nodeId;
+							// node->rtindex = rangeTableRef->rtindex;
+
+							PerNodeUnionSubQueries node;
+							node.subquerise = NIL;
+							node.nodeName = shardPlacement->nodeName;
+							node.nodePort = shardPlacement->nodePort;
+							node.nodeId = shardPlacement->nodeId;
+							node.rtindex = rangeTableRef->rtindex;
+							// todo
+							//node.subquerise = lappend(node->subquerise, subquery);
+							node.subquerise = lappend(node.subquerise, subquery);
+							//perNode[node->nodeId] = *node;
+							perNode[node.nodeId] = node;
+							//nodeIds[*nodeIdsLengh] = node->nodeId;
+							nodeIds[*nodeIdsLengh] = node.nodeId;
+							*nodeIdsLengh = *nodeIdsLengh + 1;
+							signal[shardPlacement->nodeId] = 1; // mark this nodeId exist
+						} else {
+							perNode[shardPlacement->nodeId].subquerise = lappend(perNode[shardPlacement->nodeId].subquerise, subquery);
+						}
+					} else {
+						return false;
+					}
+					break;
+				}
+			}
+		}
+	} else
+	{
+		ereport(ERROR, (errmsg("unexpected node type (%d) while "
+							   "expecting set operations or "
+							   "range table references", nodeTag(node))));
+	}
+	return true;
+}
+
+/*
+ * RecursivelyPlanSetOperationsV2 determines if regenerate Query Tree
+ * if union all involved tables locate in same worker, then gether subquery together
+ */
+static bool 
+RecursivelyPlanSetOperationsV2(Query *query, Node *node) {
+	PerNodeUnionSubQueries *perNode = palloc0(1000 * sizeof(PerNodeUnionSubQueries));
+	memset(perNode, 0, 1000 * sizeof(PerNodeUnionSubQueries));
+	int *nodeIds = palloc0(1000 * sizeof(int));
+	int *signal = palloc0(1000 * sizeof(int));
+	memset(nodeIds, 0, 1000 * sizeof(int));
+	memset(signal, 0, 1000 * sizeof(int));
+	int nodeIdsLengh = 0;
+	// Group union according to the node where the table is located
+	bool sign = RecursivelyPlanSetOperationsV2Helper(query, node, nodeIds, signal, &nodeIdsLengh, perNode);
+	if (!sign) {
+		return false;
+	}
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  nodeIdsLengh:%d", nodeIdsLengh)));
+		for (int i =0 ;i < nodeIdsLengh; i++) {
+			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2 i:%d,  nodeIds:%d, nodeName:%s, nodePort:%d, subquerise-size:%d", 
+				i, nodeIds[i], perNode[nodeIds[i]].nodeName, perNode[nodeIds[i]].nodePort, list_length(perNode[nodeIds[i]].subquerise))));
+		}
+	}
+	if (nodeIdsLengh <= 1) {
+		return false;
+	}
+	// regenerate SetOperationStmt, Combine the unions that can be executed on the same worker
+	List *rteList = NIL; 
+
+	SetOperationStmt *newSetOperStmt = copyObject(query->setOperations);
+	newSetOperStmt->larg = NULL;
+	newSetOperStmt->rarg = NULL;
+	SetOperationStmt *example =  copyObject(newSetOperStmt);
+	SetOperationStmt *head = newSetOperStmt;
+
+	for (int i =0 ;i < nodeIdsLengh; i++) {
+		// construct RangeTblEntry
+		RangeTblEntry *rangeTableEntry = rt_fetch(perNode[nodeIds[i]].rtindex, query->rtable);
+		if (list_length(perNode[nodeIds[i]].subquerise) == 1) {
+			rteList = lappend(rteList, rangeTableEntry);
+		} else {
+			StringInfo regenerateSqlForCombineUnion = makeStringInfo();  
+		
+			Query *subquery = NULL;
+			bool first = true;
+			foreach_ptr(subquery, perNode[nodeIds[i]].subquerise) {
+				StringInfo subqueryFormatString = makeStringInfo();
+				pg_get_query_def(subquery, subqueryFormatString);
+				if (first) {
+					appendStringInfo(regenerateSqlForCombineUnion,"%s", subqueryFormatString->data);
+					first = false;
+				} else {
+					appendStringInfo(regenerateSqlForCombineUnion," UNION ALL %s", subqueryFormatString->data);
+				}
+			}
+			if (list_length(perNode[nodeIds[i]].subquerise) > 1) {
+				StringInfo regenerateSqlForFinal = makeStringInfo();
+				appendStringInfo(regenerateSqlForFinal,"SELECT * FROM (%s) set", regenerateSqlForCombineUnion->data);
+				regenerateSqlForCombineUnion = regenerateSqlForFinal;
+			}
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  regenerateSqlForCombineUnion :%s", regenerateSqlForCombineUnion->data)));
+			}
+
+			rangeTableEntry->subquery = ParseQueryString(regenerateSqlForCombineUnion->data, NULL, 0);
+			rteList = lappend(rteList, rangeTableEntry);
+		}
+		// construct SetOperationStmt
+		if (i == 0) {
+			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+            nextRangeTableRef->rtindex = 1;
+			newSetOperStmt->larg = nextRangeTableRef;
+		} else if (i==1) {
+			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+            nextRangeTableRef->rtindex = 2;
+			newSetOperStmt->rarg = nextRangeTableRef;
+		} else {
+			SetOperationStmt *newNode = copyObject(example);
+			newNode->larg = head;
+			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
+			nextRangeTableRef->rtindex = i+1;
+			newNode->rarg = nextRangeTableRef;
+			head = newNode;
+		}
+	}
+
+	query->rtable = rteList;
+	query->setOperations = head;
+	query->stmt_location = -1;
+	query->stmt_len = -1;
+	if (IsLoggableLevel(DEBUG3)) {
+		StringInfo newString = makeStringInfo();
+		pg_get_query_def(query, newString);
+		ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  newString :%s", newString->data)));
+	}
+	for (int i =0 ;i < nodeIdsLengh; i++) {
+		list_free(perNode[nodeIds[i]].subquerise);
+	}
+	pfree(perNode);
+	pfree(nodeIds);
+	pfree(signal);
+	return true;
+}
+
+
+static bool
+RecursivelyRegenerateUnionAll(Query *query) {
+	if (query->setOperations != NULL) {
+		bool signal = RecursivelyPlanSetOperationsV2(query, (Node *) query->setOperations);
+		if (signal) {
+			return false;
+		}
+	} 
+	query_tree_walker(query, RecursivelyRegenerateUnionAllWalker, NULL, 0);
+	return true;
+}
+
+static bool
+RecursivelyRegenerateUnionAllWalker(Node *node){
+	if (node == NULL)
+	{
+		return false;
+	}
+
+	if (IsA(node, Query))
+	{
+		
+		Query *query = (Query *) node;
+		 
+		RecursivelyRegenerateUnionAll(query);
+
+		/* we're done, no need to recurse anymore for this query */
+		return false;
+	}
+	//ereport(DEBUG3, (errmsg("%%%%%%%%%%%%%%%%%%ready to run expression_tree_walker,nodetag:%d,level: :%d ",nodeTag(node),context->level)));
+	return expression_tree_walker(node, RecursivelyRegenerateUnionAllWalker, NULL);
+}
+
 
 /* ------------- danny test end ---------------  */
 /* Distributed planner hook */
@@ -430,15 +1099,21 @@ distributed_planner(Query *parse,
 	List *rangeTableList = ExtractRangeTableEntryList(parse);
 
 	/* ------------- danny test begin ---------------  */
-	if (IsLoggableLevel(DEBUG3))
+	if (IsLoggableLevel(DEBUG1))
 	{
-		ListCell *rangeTableCell = NULL;
+		ereport(DEBUG1, (errmsg("------walk into distributed_planner-------")));
+		print_mem(getpid(), "distributed_planner");
+		// StringInfo subqueryString = makeStringInfo();
+		// pg_get_query_def(parse, subqueryString);
+		// ereport(DEBUG1, (errmsg("------walk into distributed_planner, query:%s",ApplyLogRedaction(subqueryString->data))));
+		
+		// ListCell *rangeTableCell = NULL;
 
-		foreach(rangeTableCell, rangeTableList)
-		{
-			RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
-			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rangeTableEntry->rtekind, rangeTableEntry->relid)));
-		}
+		// foreach(rangeTableCell, rangeTableList)
+		// {
+		// 	RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
+		// 	ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rangeTableEntry->rtekind, rangeTableEntry->relid)));
+		// }
 	}
 	/* ------------- danny test  end---------------  */
 
@@ -454,26 +1129,67 @@ distributed_planner(Query *parse,
 		needsDistributedPlanning = ListContainsDistributedTableRTE(rangeTableList);
 		if (needsDistributedPlanning)
 		{
+			ereport(DEBUG1, (errmsg("Pid:%d, NextPlanId:%d", Pid, NextPlanId)));
 			/* ------------- danny test begin ---------------  */
-			TimestampTz startTimestamp = GetCurrentTimestamp();
-			long durationSeconds = 0.0;
-			int durationMicrosecs = 0;
-			long durationMillisecs = 0.0;
-			RecursivelyRegenerateSubqueries(parse);
-			StringInfo subqueryString = makeStringInfo();
-			pg_get_query_def(parse, subqueryString);
-			// as we modify parse tree structure, some record like location is not right, thus need to regenerate this tree
-			parse = ParseQueryString(subqueryString->data, NULL, 0);
-			TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-							&durationMicrosecs);
-			durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-			durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-			if (IsLoggableLevel(DEBUG3)) {
-				ereport(DEBUG3, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
-			}
-			ereport(DEBUG1, (errmsg("-------run where condition and row_num() pust down, reparse query tree time cost:%d",
-				 durationMillisecs)));
-			rangeTableList = ExtractRangeTableEntryList(parse);
+			// if (Pid != NextPlanId) {
+			// 	Pid = NextPlanId;
+				TimestampTz startTimestamp = GetCurrentTimestamp();
+				long durationSeconds = 0.0;
+				int durationMicrosecs = 0;
+				long durationMillisecs = 0.0;
+				print_mem(getpid(), "before RecursivelyRegenerateSubqueries");
+				MemoryContext functionCallContext = AllocSetContextCreate(CurrentMemoryContext,
+															  "Regenerate Subqueries Function Call Context",
+															  ALLOCSET_DEFAULT_MINSIZE,
+															  ALLOCSET_DEFAULT_INITSIZE,
+															  ALLOCSET_DEFAULT_MAXSIZE);
+				MemoryContext oldContext = MemoryContextSwitchTo(functionCallContext);
+
+				RecursivelyRegenerateSubqueries(parse);
+				
+				print_mem(getpid(), "after RecursivelyRegenerateSubqueries");
+				// StringInfo subqueryString = makeStringInfo();
+				// pg_get_query_def(parse, subqueryString);
+				// print_mem(getpid(), "after RecursivelyRegenerateSubqueries and pg_get_query_def");
+				/*
+				 * We have copied whatever we needed from the UDF calls, so we can free
+				 * the memory allocated by them.
+				 */
+				//MemoryContextSwitchTo(oldContext);
+				// as we modify parse tree structure, some record like location is not right, thus need to regenerate this tree
+				//parse = ParseQueryString(subqueryString->data, NULL, 0);
+				//MemoryContextReset(functionCallContext);
+				print_mem(getpid(), "after RecursivelyRegenerateSubqueries and ParseQueryString");
+				TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+								&durationMicrosecs);
+				durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+				durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+				if (IsLoggableLevel(DEBUG1)) {
+					//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+					ereport(DEBUG1, (errmsg("-------run RecursivelyRegenerateSubqueries, do union on flatten and where condition push down,start_time:%s, reparse query tree time cost:%d",
+					 timestamptz_to_str(startTimestamp), durationMillisecs)));
+				}
+				// MemoryContext functionCallContext2 = AllocSetContextCreate(CurrentMemoryContext,
+				// 											  "Recursively Regenerate UnionAllWalker Function Call Context",
+				// 											  ALLOCSET_DEFAULT_MINSIZE,
+				// 											  ALLOCSET_DEFAULT_INITSIZE,
+				// 											  ALLOCSET_DEFAULT_MAXSIZE);
+				//MemoryContext oldContext2 = MemoryContextSwitchTo(functionCallContext2);
+				print_mem(getpid(), "after RecursivelyRegenerateUnionAllWalker");
+				RecursivelyRegenerateUnionAllWalker(parse);
+				print_mem(getpid(), "after RecursivelyRegenerateUnionAllWalker");
+				StringInfo subqueryString = makeStringInfo();
+				pg_get_query_def(parse, subqueryString);
+				//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+				print_mem(getpid(), "after RecursivelyRegenerateUnionAllWalker and pg_get_query_def");
+				MemoryContextSwitchTo(oldContext);
+				
+				parse = ParseQueryString(subqueryString->data, NULL, 0);
+				MemoryContextReset(functionCallContext);
+				//MemoryContextReset(functionCallContext2);
+				rangeTableList = ExtractRangeTableEntryList(parse);
+				//RegenerateSubqueries = true;
+			//}
 			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ finish ExtractRangeTableEntryList")));
 			/* ------------- danny test end ---------------  */
 			fastPathRouterQuery = FastPathRouterQuery(parse, &distributionKeyValue);
@@ -481,7 +1197,7 @@ distributed_planner(Query *parse,
 	}
 	//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.0 ")));
 	int rteIdCounter = 1;
-
+	print_mem(getpid(), "before construct planContext");
 	DistributedPlanningContext planContext = {
 		.query = parse,
 		.cursorOptions = cursorOptions,
@@ -497,6 +1213,7 @@ distributed_planner(Query *parse,
 		 *  AssignRTEIdentities.
 		 */
 		planContext.originalQuery = copyObject(parse);
+		print_mem(getpid(), "if (fastPathRouterQuery)");
 	}
 	else if (needsDistributedPlanning)
 	{
@@ -509,21 +1226,23 @@ distributed_planner(Query *parse,
 		 */
 		rteIdCounter = AssignRTEIdentities(rangeTableList, rteIdCounter);
 		planContext.originalQuery = copyObject(parse);
-
+		print_mem(getpid(), "1.1");
 		bool setPartitionedTablesInherited = false;
 		AdjustPartitioningForDistributedPlanning(rangeTableList,
 												 setPartitionedTablesInherited);
+		print_mem(getpid(), "1.2");
 	}
 
 	/*
 	 * Make sure that we hide shard names on the Citus MX worker nodes. See comments in
 	 * ReplaceTableVisibleFunction() for the details.
 	 */
+	print_mem(getpid(), "1.3");
 	ReplaceTableVisibleFunction((Node *) parse);
-
+	print_mem(getpid(), "1.4");
 	/* create a restriction context and put it at the end if context list */
 	planContext.plannerRestrictionContext = CreateAndPushPlannerRestrictionContext();
-
+	print_mem(getpid(), "1.5");
 	/*
 	 * We keep track of how many times we've recursed into the planner, primarily
 	 * to detect whether we are in a function call. We need to make sure that the
@@ -540,6 +1259,7 @@ distributed_planner(Query *parse,
 		if (fastPathRouterQuery)
 		{
 			result = PlanFastPathDistributedStmt(&planContext, distributionKeyValue);
+			print_mem(getpid(), "1.6");
 		}
 		else
 		{
@@ -552,14 +1272,17 @@ distributed_planner(Query *parse,
 			planContext.plan = standard_planner_compat(planContext.query,
 													   planContext.cursorOptions,
 													   planContext.boundParams);
+			print_mem(getpid(), "1.7");
 			if (needsDistributedPlanning)
 			{
 				//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.3 ")));
 				result = PlanDistributedStmt(&planContext, rteIdCounter);
+				print_mem(getpid(), "1.8");
 			}
 			else if ((result = TryToDelegateFunctionCall(&planContext)) == NULL)
 			{
 				result = planContext.plan;
+				print_mem(getpid(), "1.9");
 			}
 			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.4 ")));
 		}
@@ -578,7 +1301,7 @@ distributed_planner(Query *parse,
 
 	/* remove the context from the context list */
 	PopPlannerRestrictionContext();
-
+	print_mem(getpid(), "2.0");
 	/*
 	 * In some cases, for example; parameterized SQL functions, we may miss that
 	 * there is a need for distributed planning. Such cases only become clear after
@@ -1330,13 +2053,13 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	{
 		ereport(DEBUG3, (errmsg("ready to run GenerateSubplansForSubqueriesAndCTEs, planId:%d", planId)));
 	}
-	if (IsLoggableLevel(DEBUG1))
+	if (IsLoggableLevel(DEBUG3))
 	{
 		StringInfo subqueryString = makeStringInfo();
 
 		pg_get_query_def(originalQuery, subqueryString);
 
-		ereport(DEBUG1, (errmsg("planId:%d, query:%s" ,planId, ApplyLogRedaction(subqueryString->data))));
+		ereport(DEBUG3, (errmsg("planId:%d, query:%s" ,planId, ApplyLogRedaction(subqueryString->data))));
 	}
 	/* ------------- danny test  end---------------  */
 	/*

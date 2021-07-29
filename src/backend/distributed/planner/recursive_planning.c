@@ -100,8 +100,10 @@
 #include "utils/guc.h"
 #include "utils/lsyscache.h"
 /* ------------- danny test begin ---------------  */
+#include "utils/memutils.h"
 #include "distributed/multi_executor.h"
 #include "nodes/print.h"
+#include <unistd.h>
 /* ------------- danny test end ---------------  */
 
 /*
@@ -120,7 +122,7 @@ struct RecursivePlanningContextInternal
 
 /* track depth of current recursive planner query */
 static int recursivePlanningDepth = 0;
-
+static const char data_mem[] = "VmRSS:";
 /*
  * CteReferenceWalkerContext is used to collect CTE references in
  * CteReferenceListWalker.
@@ -193,10 +195,7 @@ static void RecursivelyPlanSetOperations(Query *query, Node *node,
 										 RecursivePlanningContext *context);
 
 /* ------------- danny test begin ---------------  */
-static bool RecursivelyPlanSetOperationsV2Helper(Query *query, Node *node, int* nodeIds, int* signal, 
-										int* nodeIdsLengh, PerNodeUnionSubQueries *perNode);
-static bool RecursivelyPlanSetOperationsV2(Query *query, Node *node,
-							 			RecursivePlanningContext *context);
+static void print_mem(int pid, char *func_name);
 /* ------------- danny test end ---------------  */
 static bool IsLocalTableRteOrMatView(Node *node);
 static DistributedSubPlan * CreateDistributedSubPlan(uint32 subPlanId,
@@ -314,11 +313,9 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 	if (IsLoggableLevel(DEBUG3))
 	{
 		ereport(DEBUG3, (errmsg("walk into RecursivelyPlanSubqueriesAndCTEs")));
-		StringInfo subqueryString = makeStringInfo();
-
-		pg_get_query_def(query, subqueryString);
-
-		ereport(DEBUG3, (errmsg("-----RecursivelyPlanSubqueriesAndCTEs query:%s" , ApplyLogRedaction(subqueryString->data))));
+		// StringInfo subqueryString = makeStringInfo();
+		// pg_get_query_def(query, subqueryString);
+		// ereport(DEBUG3, (errmsg("-----RecursivelyPlanSubqueriesAndCTEs query:%s" , ApplyLogRedaction(subqueryString->data))));
 		//elog_node_display(LOG, "citus parse tree", query, Debug_pretty_print);
 	}
 	/* ------------- danny test  end---------------  */
@@ -368,9 +365,9 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 
 	if (IsLoggableLevel(DEBUG3))
 	{
-		StringInfo subqueryString = makeStringInfo();
-		pg_get_query_def(query, subqueryString);
-		ereport(DEBUG3, (errmsg("+++++++++ after query_tree_walker, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+		// StringInfo subqueryString = makeStringInfo();
+		// pg_get_query_def(query, subqueryString);
+		// ereport(DEBUG3, (errmsg("+++++++++ after query_tree_walker, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
 
 	}
 	/* ------------- danny test  end---------------  */
@@ -379,12 +376,11 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3))
 		{
-			StringInfo subqueryString = makeStringInfo();
-			pg_get_query_def(query, subqueryString);
-			ereport(DEBUG3, (errmsg("++++++----------######ShouldRecursivelyPlanSetOperation, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+			// StringInfo subqueryString = makeStringInfo();
+			// pg_get_query_def(query, subqueryString);
+			// ereport(DEBUG3, (errmsg("++++++----------######ShouldRecursivelyPlanSetOperation, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
 			//elog_node_display(LOG, "++++++---------- query parse tree", query, Debug_pretty_print);
 		}
-		RecursivelyPlanSetOperationsV2(query, (Node *) query->setOperations, context);
 		//elog_node_display(LOG, "++++++---------- after RecursivelyPlanSetOperationsV2 query parse tree", query, Debug_pretty_print);
 		//ereport(DEBUG3, (errmsg("^^^^^^^^^^^^")));
 		/* ------------- danny test  end---------------  */
@@ -393,9 +389,9 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3))
 		{
-			StringInfo subqueryString = makeStringInfo();
-			pg_get_query_def(query, subqueryString);
-			ereport(DEBUG3, (errmsg("++++++++++++++++++after RecursivelyPlanSetOperations, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
+			// StringInfo subqueryString = makeStringInfo();
+			// pg_get_query_def(query, subqueryString);
+			// ereport(DEBUG3, (errmsg("++++++++++++++++++after RecursivelyPlanSetOperations, context->level:%d, query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
 		}
 		/* ------------- danny test  end---------------  */
 	}
@@ -410,7 +406,7 @@ RecursivelyPlanSubqueriesAndCTEs(Query *query, RecursivePlanningContext *context
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3))
 		{
-			ereport(DEBUG3, (errmsg("walk into ShouldRecursivelyPlanSublinks, context->level:%d",context->level)));
+			ereport(DEBUG3, (errmsg("walk into ShouldRecursivelyPlanSublinks, context->level:%d", context->level)));
 		}
 		/* ------------- danny test  end---------------  */
 		/* replace all subqueries in the WHERE clause */
@@ -799,11 +795,11 @@ RecursivelyPlanAllSubqueries(Node *node, RecursivePlanningContext *planningConte
 		/* ------------- danny test begin ---------------  */
 		if (IsLoggableLevel(DEBUG3))
 		{
-			StringInfo subqueryString = makeStringInfo();
+			// StringInfo subqueryString = makeStringInfo();
 	
-			pg_get_query_def(query, subqueryString);
+			// pg_get_query_def(query, subqueryString);
 	
-			ereport(DEBUG3, (errmsg("RecursivelyPlanAllSubqueries query:%s" , ApplyLogRedaction(subqueryString->data))));
+			// ereport(DEBUG3, (errmsg("RecursivelyPlanAllSubqueries query:%s" , ApplyLogRedaction(subqueryString->data))));
 		}
 		/* ------------- danny test  end---------------  */
 		if (FindNodeMatchingCheckFunctionInRangeTableList(query->rtable, IsCitusTableRTE))
@@ -999,6 +995,12 @@ RecursivelyPlanSubqueryWalker(Node *node, RecursivePlanningContext *context)
 			pg_get_query_def(query, subqueryString);
 			ereport(DEBUG3, (errmsg("------walk into RecursivelyPlanSubqueryWalker and node is query, level:%d， query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
 		}
+		DeferredErrorMessage *message = DeferErrorIfCannotPushdownSubqueryV2(query);
+		if (message == NULL) {
+			RecursivelyPlanSubquery(query, context);
+			return false;
+		}
+
 		/* ------------- danny test  end---------------  */
 		context->level += 1;
 
@@ -1062,10 +1064,10 @@ ShouldRecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *context
 	if (FindNodeMatchingCheckFunctionInRangeTableList(subquery->rtable,
 													  IsLocalTableRteOrMatView))
 	{
-		if (IsLoggableLevel(DEBUG3))
-		{
-			ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.1")));
-		}
+		// if (IsLoggableLevel(DEBUG3))
+		// {
+		// 	ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.1")));
+		// }
 		/*
 		 * Postgres can always plan queries that don't require distributed planning.
 		 * Note that we need to check this first, otherwise the calls to the many other
@@ -1078,10 +1080,10 @@ ShouldRecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *context
 	}
 	else if (CanPushdownSubquery(subquery, false))
 	{
-		if (IsLoggableLevel(DEBUG3))
-		{
-			ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.2")));
-		}
+		// if (IsLoggableLevel(DEBUG3))
+		// {
+		// 	ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.2")));
+		// }
 		/*
 		 * We should do one more check for the distribution key equality.
 		 *
@@ -1096,26 +1098,26 @@ ShouldRecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *context
 			!AllDistributionKeysInSubqueryAreEqual(subquery,
 												   context->plannerRestrictionContext))
 		{
-			if (IsLoggableLevel(DEBUG3))
-			{
-				ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.3")));
-			}
+			// if (IsLoggableLevel(DEBUG3))
+			// {
+			// 	ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.3")));
+			// }
 			return true;
 		}
-		if (IsLoggableLevel(DEBUG3))
-		{
-			ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.4")));
-		}
+		// if (IsLoggableLevel(DEBUG3))
+		// {
+		// 	ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.4")));
+		// }
 		/*
 		 * Citus can pushdown this subquery, no need to recursively
 		 * plan which is much more expensive than pushdown.
 		 */
 		return false;
 	}
-	if (IsLoggableLevel(DEBUG3))
-	{
-		ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.5")));
-	}
+	// if (IsLoggableLevel(DEBUG3))
+	// {
+	// 	ereport(DEBUG3, (errmsg("!!! walk into ShouldRecursivelyPlanSubquery  0.5")));
+	// }
 	return true;
 }
 
@@ -1225,194 +1227,28 @@ ShouldRecursivelyPlanSetOperation(Query *query, RecursivePlanningContext *contex
 
 /* ------------- danny test begin ---------------  */
 
-static bool RecursivelyPlanSetOperationsV2Helper(Query *query, Node *node, int* nodeIds, int* signal, int* nodeIdsLengh, PerNodeUnionSubQueries *perNode) {
-	if (IsA(node, SetOperationStmt))
-	{
-		/* ------------- danny test begin ---------------  */
-		if (IsLoggableLevel(DEBUG3))
-		{
-			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2Helper is SetOperationStmt")));
-		}
-		/* ------------- danny test  end---------------  */
-		SetOperationStmt *setOperations = (SetOperationStmt *) node;
+static void print_mem(int pid, char *func_name)
+{
+    FILE *stream;
+    char cache[256];
+    char mem_info[64];
+    ereport(DEBUG1, (errmsg("%s", func_name)));
+    sprintf(mem_info, "/proc/%d/status", pid);
+    stream = fopen(mem_info, "r");
+    if (stream == NULL) {
+        return;
+    }
 
-		bool sign = RecursivelyPlanSetOperationsV2Helper(query, setOperations->larg, nodeIds, signal, nodeIdsLengh, perNode);
-		if (sign == false) {
-			return sign;
-		}
-		sign = RecursivelyPlanSetOperationsV2Helper(query, setOperations->rarg, nodeIds, signal, nodeIdsLengh, perNode);
-		if (sign == false) {
-			return sign;
-		}
-	} else if (IsA(node, RangeTblRef))
-	{
-		/* ------------- danny test begin ---------------  */
-		if (IsLoggableLevel(DEBUG3))
-		{
-			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2Helper is RangeTblRef")));
-		}
-		/* ------------- danny test  end---------------  */
-		RangeTblRef *rangeTableRef = (RangeTblRef *) node;
-		RangeTblEntry *rangeTableEntry = rt_fetch(rangeTableRef->rtindex,
-												  query->rtable);
-		Query *subquery = rangeTableEntry->subquery;
-		if (rangeTableEntry->rtekind != RTE_SUBQUERY) {
-			return false;
-		}
-		if (!FindNodeMatchingCheckFunction((Node *) subquery, IsDistributedTableRTE)) {
-			return false;
-		}
-		List *rangeTableList = ExtractRangeTableEntryList(subquery);
-		char *nodeName = NULL;
-		uint32 nodePort = 0;
-		uint32 nodeId  = 0;
-		ListCell *rangeTableCell = NULL;
-		bool findFirstRTE = false;
-		foreach(rangeTableCell, rangeTableList) {
-			RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
-			if (IsLoggableLevel(DEBUG3)) {
-				ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
-			}
-			Oid distributedTableId = rte->relid;
-			if (rte->rtekind == RTE_RELATION) {
-				Oid distributedTableId = rte->relid;
-				if (findFirstRTE == true) {
-					return false;
-				}
-				findFirstRTE = true;
-				CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
-				if (cacheEntry->shardIntervalArrayLength != 1) {
-					return false;
-				}
-				ShardInterval *newShardInterval = CopyShardInterval(cacheEntry->sortedShardIntervalArray[0]);
-				if (IsLoggableLevel(DEBUG3)) {
-					ereport(DEBUG3, (errmsg("distributedTableId:%d, shardId:%d", distributedTableId, newShardInterval->shardId)));
-				}
-				List *shardPlacementList = ActiveShardPlacementList(newShardInterval->shardId);
-				ShardPlacement *shardPlacement = NULL;
-				foreach_ptr(shardPlacement, shardPlacementList)
-				{
-					if (IsLoggableLevel(DEBUG3)) {
-						ereport(DEBUG3, (errmsg("nodeName:%s, nodePort:%d, nodeId:%d", shardPlacement->nodeName, shardPlacement->nodePort, shardPlacement->nodeId)));
-					}
-					if (shardPlacement->shardState == SHARD_STATE_ACTIVE)
-					{
-						if (signal[shardPlacement->nodeId] == 0) {
-							PerNodeUnionSubQueries *node = (PerNodeUnionSubQueries*) palloc0(sizeof(PerNodeUnionSubQueries));
-							node->nodeName = shardPlacement->nodeName;
-							node->nodePort = shardPlacement->nodePort;
-							node->nodeId = shardPlacement->nodeId;
-							node->rtindex = rangeTableRef->rtindex;
-							// todo
-							node->subquerise = lappend(node->subquerise, subquery);
-							perNode[node->nodeId] = *node;
-							nodeIds[*nodeIdsLengh] = node->nodeId;
-							*nodeIdsLengh = *nodeIdsLengh + 1;
-							signal[shardPlacement->nodeId] = 1; // mark this nodeId exist
-						} else {
-							perNode[shardPlacement->nodeId].subquerise = lappend(perNode[shardPlacement->nodeId].subquerise, subquery);
-						}
-					} else {
-						return false;
-					}
-					break;
-				}
-			}
-		}
-	} else
-	{
-		ereport(ERROR, (errmsg("unexpected node type (%d) while "
-							   "expecting set operations or "
-							   "range table references", nodeTag(node))));
-	}
-	return true;
-}
-
-static bool 
-RecursivelyPlanSetOperationsV2(Query *query, Node *node,
-							 RecursivePlanningContext *context) {
-	PerNodeUnionSubQueries *perNode = palloc0(10000 * sizeof(PerNodeUnionSubQueries));
-	memset(perNode, 0, 10000 * sizeof(PerNodeUnionSubQueries));
-	int *nodeIds = palloc0(10000 * sizeof(int));
-	int *signal = palloc0(10000 * sizeof(int));
-	memset(nodeIds, 0, 10000 * sizeof(int));
-	memset(signal, 0, 10000 * sizeof(int));
-	int nodeIdsLengh = 0;
-	// Group union according to the node where the table is located
-	bool sign = RecursivelyPlanSetOperationsV2Helper(query, node, nodeIds, signal, &nodeIdsLengh, perNode);
-	if (!sign) {
-		return false;
-	}
-	if (IsLoggableLevel(DEBUG3)) {
-		ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  nodeIdsLengh:%d", nodeIdsLengh)));
-		for (int i =0 ;i < nodeIdsLengh; i++) {
-			ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2 i:%d,  nodeIds:%d, nodeName:%s, nodePort:%d, subquerise-size:%d", 
-				i, nodeIds[i], perNode[nodeIds[i]].nodeName, perNode[nodeIds[i]].nodePort, list_length(perNode[nodeIds[i]].subquerise))));
-		}
-	}
-	
-	// regenerate SetOperationStmt, Combine the unions that can be executed on the same worker
-	List *rteList = NIL; 
-
-	SetOperationStmt *newSetOperStmt = copyObject(query->setOperations);
-	newSetOperStmt->larg = NULL;
-	newSetOperStmt->rarg = NULL;
-	SetOperationStmt *example =  copyObject(newSetOperStmt);
-	SetOperationStmt *head = newSetOperStmt;
-	for (int i =0 ;i < nodeIdsLengh; i++) {
-		// construct RangeTblEntry
-		RangeTblEntry *rangeTableEntry = rt_fetch(perNode[nodeIds[i]].rtindex, query->rtable);
-		if (list_length(perNode[nodeIds[i]].subquerise) == 1) {
-			rteList = lappend(rteList, rangeTableEntry);
-		} else {
-			StringInfo regenerateSqlForCombineUnion = makeStringInfo();  
-		
-			Query *subquery = NULL;
-			bool first = true;
-			foreach_ptr(subquery, perNode[nodeIds[i]].subquerise) {
-				StringInfo subqueryFormatString = makeStringInfo();
-				pg_get_query_def(subquery, subqueryFormatString);
-				if (first) {
-					appendStringInfo(regenerateSqlForCombineUnion,"%s", subqueryFormatString->data);
-					first = false;
-				} else {
-					appendStringInfo(regenerateSqlForCombineUnion," UNION ALL %s", subqueryFormatString->data);
-				}
-			}
-			if (IsLoggableLevel(DEBUG3)) {
-				ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  regenerateSqlForCombineUnion :%s", regenerateSqlForCombineUnion->data)));
-			}
-			rangeTableEntry->subquery = ParseQueryString(regenerateSqlForCombineUnion->data, NULL, 0);
-			rteList = lappend(rteList, rangeTableEntry);
-		}
-		// construct SetOperationStmt
-		if (i == 0) {
-			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
-            nextRangeTableRef->rtindex = 1;
-			newSetOperStmt->larg = nextRangeTableRef;
-		} else if (i==1) {
-			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
-            nextRangeTableRef->rtindex = 2;
-			newSetOperStmt->rarg = nextRangeTableRef;
-		} else {
-			SetOperationStmt *newNode = copyObject(example);
-			newNode->larg = head;
-			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
-			newSetOperStmt->rarg = i+1;
-			newNode->rarg = nextRangeTableRef;
-			head = newNode;
-		}
-	}
-	query->rtable = rteList;
-	query->setOperations = head;
-	query->stmt_location = -1;
-	query->stmt_len = -1;
-	StringInfo newString = makeStringInfo();
-	pg_get_query_def(query, newString);
-	if (IsLoggableLevel(DEBUG3)) {
-		ereport(DEBUG3, (errmsg("##### RecursivelyPlanSetOperationsV2  newString :%s", newString->data)));
-	}
-	return true;
+    while(fscanf(stream, "%s", cache) != EOF) {
+        if (strncmp(cache, data_mem, sizeof(data_mem)) == 0) {
+            if (fscanf(stream, "%s", cache) != EOF) {
+                ereport(DEBUG1, (errmsg("hw memory[%s]<=======", cache)));
+                break;
+            }
+        } 
+    }
+    fclose(stream); 
+    return;
 }
 /* ------------- danny test end ---------------  */
 
@@ -1619,13 +1455,13 @@ RecursivelyPlanSubquery(Query *subquery, RecursivePlanningContext *planningConte
 		ereport(DEBUG3, (errmsg("finish BuildSubPlanResultQuery, planId：%d,subPlanId：%d",planId,subPlanId)));
 	}
 	/* ------------- danny test  end---------------  */
-	if (IsLoggableLevel(DEBUG1))
+	if (IsLoggableLevel(DEBUG3))
 	{
 		StringInfo subqueryString = makeStringInfo();
 
 		pg_get_query_def(debugQuery, subqueryString);
 
-		ereport(DEBUG1, (errmsg("generating subplan " UINT64_FORMAT
+		ereport(DEBUG3, (errmsg("generating subplan " UINT64_FORMAT
 								"_%u for subquery %s", planId, subPlanId,
 								ApplyLogRedaction(subqueryString->data))));
 	}

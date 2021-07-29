@@ -893,6 +893,85 @@ CanPushdownSubquery(Query *subqueryTree, bool outerMostQueryHasLimit)
 	return (message == NULL);
 }
 
+DeferredErrorMessage *
+DeferErrorIfCannotPushdownSubqueryV2(Query *subqueryTree) {
+	bool canPushDown = true;
+	char *errorDetail = NULL;
+	List *rangeTableList = ExtractRangeTableEntryList(subqueryTree);
+	char *nodeName = NULL;
+	uint32 nodePort = 0;
+	uint32 nodeId  = 0;
+	ListCell *rangeTableCell = NULL;
+	foreach(rangeTableCell, rangeTableList)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
+		}
+		Oid distributedTableId = rte->relid;
+		if (rte->rtekind == RTE_RELATION) {
+			Oid distributedTableId = rte->relid;
+			if(!IsCitusTable(distributedTableId)){
+				canPushDown = false;
+				break;
+			} else if (IsCitusTableType(distributedTableId, CITUS_LOCAL_TABLE))
+			{
+				canPushDown = false;
+				break;
+			}
+			if (!IsCitusTableType(distributedTableId, DISTRIBUTED_TABLE))
+			{
+				canPushDown = false;
+				break;
+			}
+			// only work for single shard table, need add this logic lately
+			CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
+			if (cacheEntry->shardIntervalArrayLength != 1) {
+				canPushDown = false;
+				break;
+			}
+			ShardInterval *newShardInterval = CopyShardInterval(cacheEntry->sortedShardIntervalArray[0]);
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("distributedTableId:%d, shardId:%d", distributedTableId, newShardInterval->shardId)));
+			}
+
+			
+			List *shardPlacementList = ActiveShardPlacementList(newShardInterval->shardId);
+			ShardPlacement *shardPlacement = NULL;
+			foreach_ptr(shardPlacement, shardPlacementList)
+			{
+				if (IsLoggableLevel(DEBUG3)) {
+					ereport(DEBUG3, (errmsg("nodeName:%s, nodePort%d, nodeId:%d", shardPlacement->nodeName, shardPlacement->nodePort, shardPlacement->nodeId)));
+				}
+				
+				if (shardPlacement->shardState == SHARD_STATE_ACTIVE)
+				{
+					if (nodeName == NULL) {
+						nodeName = shardPlacement->nodeName;
+						nodePort = shardPlacement->nodePort;
+						nodeId = shardPlacement->nodeId;
+					} else {
+						if (nodeId != shardPlacement->nodeId) {
+							canPushDown = false;
+							break;
+						}
+					}
+				} else {
+					canPushDown = false;
+					break;
+				}
+				break;
+			}
+		}
+	}
+	if (canPushDown) {
+		return NULL;
+	}
+	errorDetail = "cannot push down this subquery";
+	return DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+							 "cannot push down this subquery",
+							 errorDetail, NULL);
+}
 
 /*
  * DeferErrorIfCannotPushdownSubquery checks if we can push down the given
@@ -921,76 +1000,6 @@ DeferErrorIfCannotPushdownSubquery(Query *subqueryTree, bool outerMostQueryHasLi
 {
 	bool preconditionsSatisfied = true;
 	char *errorDetail = NULL;
-	/* ------------- danny test begin ---------------  */
-	// if subquery only involved one table and this table is single shard, this subquery can be push down safely
-	bool canPushDown = true;
-	List *rangeTableList = ExtractRangeTableEntryList(subqueryTree);
-	char *nodeName = NULL;
-	uint32 nodePort = 0;
-	uint32 nodeId  = 0;
-	//if (IsLoggableLevel(DEBUG3))
-	//{
-		ListCell *rangeTableCell = NULL;
-		foreach(rangeTableCell, rangeTableList)
-		{
-			RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
-			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
-			Oid distributedTableId = rte->relid;
-
-			if (rte->rtekind == RTE_RELATION) {
-				Oid distributedTableId = rte->relid;
-				if(!IsCitusTable(distributedTableId)){
-					canPushDown = false;
-					break;
-				} else if (IsCitusTableType(distributedTableId, CITUS_LOCAL_TABLE))
-				{
-					canPushDown = false;
-					break;
-				}
-				if (!IsCitusTableType(distributedTableId, DISTRIBUTED_TABLE))
-				{
-					canPushDown = false;
-					break;
-				}
-				// only work for single shard table, need add this logic lately
-				CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
-				if (cacheEntry->shardIntervalArrayLength != 1) {
-					canPushDown = false;
-					break;
-				}
-				ShardInterval *newShardInterval = CopyShardInterval(cacheEntry->sortedShardIntervalArray[0]);
-				ereport(DEBUG3, (errmsg("distributedTableId:%d, shardId:%d", distributedTableId, newShardInterval->shardId)));
-				List *shardPlacementList = ActiveShardPlacementList(newShardInterval->shardId);
-				ShardPlacement *shardPlacement = NULL;
-				foreach_ptr(shardPlacement, shardPlacementList)
-				{
-					ereport(DEBUG3, (errmsg("nodeName:%s, nodePort%d, nodeId:%d", shardPlacement->nodeName, shardPlacement->nodePort, shardPlacement->nodeId)));
-					if (shardPlacement->shardState == SHARD_STATE_ACTIVE)
-					{
-						if (nodeName == NULL) {
-							nodeName = shardPlacement->nodeName;
-							nodePort = shardPlacement->nodePort;
-							nodeId = shardPlacement->nodeId;
-						} else {
-							if (nodeId != shardPlacement->nodeId) {
-								canPushDown = false;
-								break;
-							}
-						}
-					} else {
-						canPushDown = false;
-						break;
-					}
-					break;
-				}
-
-			}
-		}
-	//}
-	if (canPushDown) {
-		return NULL;
-	}
-	/* ------------- danny test end ---------------  */
 
 	DeferredErrorMessage *deferredError = DeferErrorIfUnsupportedTableCombination(
 		subqueryTree);

@@ -40,6 +40,7 @@ extern DeferredErrorMessage * DeferErrorIfUnsupportedSubqueryPushdown(Query *
 																	  PlannerRestrictionContext
 																	  *
 																	  plannerRestrictionContext);
+extern DeferredErrorMessage * DeferErrorIfCannotPushdownSubqueryV2(Query *subqueryTree);
 extern DeferredErrorMessage * DeferErrorIfCannotPushdownSubquery(Query *subqueryTree,
 																 bool
 																 outerMostQueryHasLimit);
