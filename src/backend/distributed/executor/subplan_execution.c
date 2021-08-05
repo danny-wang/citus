@@ -1710,6 +1710,9 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 void
 ExecuteSubPlans(DistributedPlan *distributedPlan)
 {
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG1, (errmsg("-------ExecuteSubPlans start_time:%s", timestamptz_to_str(GetCurrentTimestamp()))));
+	}
 	uint64 planId = distributedPlan->planId;
 	List *subPlanList = distributedPlan->subPlanList;
 

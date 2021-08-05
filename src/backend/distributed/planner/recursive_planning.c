@@ -101,6 +101,7 @@
 #include "utils/lsyscache.h"
 /* ------------- danny test begin ---------------  */
 #include "utils/memutils.h"
+#include "utils/timestamp.h"
 #include "distributed/multi_executor.h"
 #include "nodes/print.h"
 #include <unistd.h>
@@ -143,6 +144,10 @@ typedef struct VarLevelsUpWalkerContext
 } VarLevelsUpWalkerContext;
 
 /* ------------- danny test begin ---------------  */
+
+#define SECOND_TO_MILLI_SECOND 1000
+#define MICRO_TO_MILLI_SECOND 0.001
+
 typedef struct PerNodeUnionSubQueries
 {
 	char *nodeName;
@@ -995,7 +1000,20 @@ RecursivelyPlanSubqueryWalker(Node *node, RecursivePlanningContext *context)
 			pg_get_query_def(query, subqueryString);
 			ereport(DEBUG3, (errmsg("------walk into RecursivelyPlanSubqueryWalker and node is query, level:%d， query:%s",context->level,ApplyLogRedaction(subqueryString->data))));
 		}
+		TimestampTz startTimestamp = GetCurrentTimestamp();
+		long durationSeconds = 0.0;
+		int durationMicrosecs = 0;
+		long durationMillisecs = 0.0;
 		DeferredErrorMessage *message = DeferErrorIfCannotPushdownSubqueryV2(query);
+		if (IsLoggableLevel(DEBUG1)) {
+			//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+			TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+						&durationMicrosecs);
+			durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+			durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+			ereport(DEBUG1, (errmsg("-------run DeferErrorIfCannotPushdownSubqueryV2,start_time:%s, run time cost:%d",
+			 timestamptz_to_str(startTimestamp), durationMillisecs)));
+		}
 		if (message == NULL) {
 			RecursivelyPlanSubquery(query, context);
 			return false;
