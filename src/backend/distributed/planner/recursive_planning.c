@@ -103,6 +103,7 @@
 #include "utils/memutils.h"
 #include "utils/timestamp.h"
 #include "distributed/multi_executor.h"
+#include "distributed/intermediate_result_pruning.h"
 #include "nodes/print.h"
 #include <unistd.h>
 /* ------------- danny test end ---------------  */
@@ -1512,6 +1513,71 @@ CreateDistributedSubPlan(uint32 subPlanId, Query *subPlanQuery)
 		 */
 		cursorOptions |= CURSOR_OPT_FORCE_DISTRIBUTED;
 	}
+	/* ------------- danny test begin ---------------  */
+	// For tasks executed by the worker node, because the method of sending sql directly to the worker is adopted, 
+	// there is no need to construct an execution plan, thus the corresponding sql to be executed can be directly constructed.
+	if (!ContainsReadIntermediateResultFunction((Node *) subPlanQuery)){
+		DeferredErrorMessage *message = DeferErrorIfCannotPushdownSubqueryV2(subPlanQuery);
+		if (IsLoggableLevel(DEBUG1)) {
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(subPlanQuery, subqueryString);
+			ereport(DEBUG1, (errmsg("------walk into CreateDistributedSubPlan, query:%s", ApplyLogRedaction(subqueryString->data))));
+			// ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+			// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+			// 			&durationMicrosecs);
+			// durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+			// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+			// ereport(DEBUG1, (errmsg("-------run DeferErrorIfCannotPushdownSubqueryV2,start_time:%s, run time cost:%d",
+			//  timestamptz_to_str(startTimestamp), durationMillisecs)));
+		}
+		if (message == NULL) {
+			//ereport(DEBUG1, (errmsg("~~~~~~~~~~~ready to run CreateSingleWorkerRunableRouterPlan")));
+			DistributedPlan *distributedPlan = CreateSingleWorkerRunableRouterPlan(subPlanQuery);
+			//ereport(DEBUG1, (errmsg("~~~~~~~~~~~finish run CreateSingleWorkerRunableRouterPlan")));
+			distributedPlan->planId = subPlanId;
+			PlannedStmt *plannedStmt = makeNode(PlannedStmt);
+			DistributedSubPlan *dSubPlan = CitusMakeNode(DistributedSubPlan);
+			dSubPlan->subPlanId = subPlanId;
+			CustomScan *customScan = makeNode(CustomScan);
+			MultiExecutorType executorType = MULTI_EXECUTOR_INVALID_FIRST;
+			executorType = JobExecutorType(distributedPlan);
+			switch (executorType)
+			{
+				case MULTI_EXECUTOR_ADAPTIVE:
+				{
+					customScan->methods = &AdaptiveExecutorCustomScanMethods;
+					break;
+				}
+		
+				case MULTI_EXECUTOR_NON_PUSHABLE_INSERT_SELECT:
+				{
+					customScan->methods = &NonPushableInsertSelectCustomScanMethods;
+					break;
+				}
+		
+				default:
+				{
+					customScan->methods = &DelayedErrorCustomScanMethods;
+					break;
+				}
+			}
+			Node *distributedPlanData = (Node *) distributedPlan;
+
+			customScan->custom_private = list_make1(distributedPlanData);
+			customScan->flags = CUSTOMPATH_SUPPORT_BACKWARD_SCAN;
+			distributedPlan->usedSubPlanNodeList = FindSubPlanUsages(distributedPlan);
+
+			plannedStmt->planTree = (Plan *) customScan;
+			plannedStmt->canSetTag = true;
+			plannedStmt->relationOids = NIL;
+
+			dSubPlan->plan = plannedStmt;
+
+			//elog_node_display(LOG, "after CreateSingleWorkerRunableRouterPlan, dSubPlan parse tree", dSubPlan, Debug_pretty_print);
+			return dSubPlan;
+		}
+	}
+	/* ------------- danny test end ---------------  */
 
 	DistributedSubPlan *subPlan = CitusMakeNode(DistributedSubPlan);
 	subPlan->plan = planner_compat(subPlanQuery, cursorOptions, NULL);

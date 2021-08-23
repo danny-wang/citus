@@ -12,6 +12,7 @@
 #ifndef MULTI_ROUTER_PLANNER_H
 #define MULTI_ROUTER_PLANNER_H
 
+#include "postgres.h"
 #include "c.h"
 
 #include "distributed/errormessage.h"
@@ -28,6 +29,7 @@
 extern bool EnableRouterExecution;
 extern bool EnableFastPathRouterPlanner;
 
+extern DistributedPlan * CreateSingleWorkerRunableRouterPlan(Query *query);
 extern DistributedPlan * CreateRouterPlan(Query *originalQuery, Query *query,
 										  PlannerRestrictionContext *
 										  plannerRestrictionContext);
@@ -44,6 +46,7 @@ extern DeferredErrorMessage * PlanRouterQuery(Query *originalQuery,
 											  bool *multiShardModifyQuery,
 											  Const **partitionValueConst,
 											  bool *containOnlyLocalTable);
+extern List * RelationShardListForSingleShardTables(List *rangeTableList);
 extern List * RelationShardListForShardIntervalList(List *shardIntervalList,
 													bool *shardsPresent);
 extern List * CreateTaskPlacementListForShardIntervals(List *shardIntervalList,

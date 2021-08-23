@@ -893,6 +893,96 @@ CanPushdownSubquery(Query *subqueryTree, bool outerMostQueryHasLimit)
 	return (message == NULL);
 }
 
+/*
+ * GetRelatedTableTypeOfQuery checks if all tables involved by query are distributed table, if all tables are single shard tables
+ * ps: if allTablesAreDistributedTable is false, then other signals status is random.
+ */
+void GetRelatedTableTypeOfQuery(Query *query, bool *allTablesAreDistributedTable, bool *allTablesAreSingleShard, bool *tablesLocatedInMultiWorker,
+	 bool *containsReadIntermediateResultFunction) {
+	bool allDistributedTable = true;
+	bool allSingleShard = true;
+	bool locatedInMultiWorker = false;
+
+
+	if (ContainsReadIntermediateResultFunction((Node *) query)) {
+		*containsReadIntermediateResultFunction = true;
+	} else {
+		*containsReadIntermediateResultFunction = false;
+	}
+	List *rangeTableList = ExtractRangeTableEntryList(query);
+	char *nodeName = NULL;
+	uint32 nodePort = 0;
+	uint32 nodeId  = 0;
+	ListCell *rangeTableCell = NULL;
+	foreach(rangeTableCell, rangeTableList)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
+		}
+		Oid distributedTableId = rte->relid;
+		if (rte->rtekind == RTE_RELATION && rte->relkind == RELKIND_RELATION) { 
+			Oid distributedTableId = rte->relid;
+			if (!IsCitusTable(distributedTableId)){
+				allDistributedTable = false;
+				break;
+			} else if (IsCitusTableType(distributedTableId, CITUS_LOCAL_TABLE))
+			{
+				allDistributedTable = false;
+				break;
+			}
+			if (!IsCitusTableType(distributedTableId, DISTRIBUTED_TABLE))
+			{
+				allDistributedTable = false;
+				break;
+			}
+			// only work for single shard table, need add this logic lately
+			CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
+			if (cacheEntry->shardIntervalArrayLength != 1) {
+				allSingleShard = false;
+				break;
+			}
+			ShardInterval *newShardInterval = CopyShardInterval(cacheEntry->sortedShardIntervalArray[0]);
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("distributedTableId:%d, shardId:%d", distributedTableId, newShardInterval->shardId)));
+			}
+
+			
+			List *shardPlacementList = ActiveShardPlacementList(newShardInterval->shardId);
+			ShardPlacement *shardPlacement = NULL;
+			foreach_ptr(shardPlacement, shardPlacementList)
+			{
+				if (IsLoggableLevel(DEBUG3)) {
+					ereport(DEBUG3, (errmsg("nodeName:%s, nodePort%d, nodeId:%d", shardPlacement->nodeName, shardPlacement->nodePort, shardPlacement->nodeId)));
+				}
+				
+				if (shardPlacement->shardState == SHARD_STATE_ACTIVE)
+				{
+					if (nodeName == NULL) {
+						nodeName = shardPlacement->nodeName;
+						nodePort = shardPlacement->nodePort;
+						nodeId = shardPlacement->nodeId;
+					} else {
+						if (nodeId != shardPlacement->nodeId) {
+							locatedInMultiWorker = true;
+							break;
+						}
+					}
+				} else {
+					allDistributedTable = false;
+					break;
+				}
+				break;
+			}
+		}
+	}
+	*allTablesAreDistributedTable = allDistributedTable;
+	*allTablesAreSingleShard = allSingleShard;
+	*tablesLocatedInMultiWorker = locatedInMultiWorker;
+}
+
+
+
 DeferredErrorMessage *
 DeferErrorIfCannotPushdownSubqueryV2(Query *subqueryTree) {
 	bool canPushDown = true;
@@ -909,9 +999,9 @@ DeferErrorIfCannotPushdownSubqueryV2(Query *subqueryTree) {
 			ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
 		}
 		Oid distributedTableId = rte->relid;
-		if (rte->rtekind == RTE_RELATION) {
+		if (rte->rtekind == RTE_RELATION && rte->relkind == RELKIND_RELATION) {
 			Oid distributedTableId = rte->relid;
-			if(!IsCitusTable(distributedTableId)){
+			if (!IsCitusTable(distributedTableId)){
 				canPushDown = false;
 				break;
 			} else if (IsCitusTableType(distributedTableId, CITUS_LOCAL_TABLE))

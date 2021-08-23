@@ -118,6 +118,10 @@ typedef struct PlannerRestrictionContext
 	 */
 	FastPathRestrictionContext *fastPathRestrictionContext;
 	MemoryContext memoryContext;
+	bool allTablesAreDistributedTable;
+	bool allTablesAreSingleShard;
+	bool tablesLocatedInMultiWorker;
+	bool containsReadIntermediateResultFunction;
 } PlannerRestrictionContext;
 
 typedef struct RelationShard
@@ -179,6 +183,8 @@ typedef struct DistributedPlanningContext
 
 	/* Our custom restriction context */
 	PlannerRestrictionContext *plannerRestrictionContext;
+
+	bool doStandardPlannerInTheBegin;
 } DistributedPlanningContext;
 
 

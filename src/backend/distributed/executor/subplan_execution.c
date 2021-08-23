@@ -219,12 +219,12 @@ TypeOutputFunctions(uint32 columnCount, Oid *typeIdArray, bool binaryFormat)
 		else if (binaryFormat)
 		{
 			getTypeBinaryOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
-			ereport(DEBUG3, (errmsg("columnTypeId:%d binaryOutputFunctionId：%d",columnTypeId,outputFunctionId)));
+			//ereport(DEBUG3, (errmsg("columnTypeId:%d binaryOutputFunctionId：%d",columnTypeId,outputFunctionId)));
 		}
 		else
 		{
 			getTypeOutputInfo(columnTypeId, &outputFunctionId, &typeVariableLength);
-			ereport(DEBUG3, (errmsg("columnTypeId:%d outputFunctionId：%d",columnTypeId,outputFunctionId)));
+			//ereport(DEBUG3, (errmsg("columnTypeId:%d outputFunctionId：%d",columnTypeId,outputFunctionId)));
 		}
 
 		fmgr_info(outputFunctionId, currentOutputFunction);
@@ -590,7 +590,9 @@ OpenNewConnectionsV2(SubPlanParallel* subPlan) {
 	 */
 	char conninfo[100];
 	sprintf(conninfo, "host=%s dbname=%s user=%s password=password port=%d", hostname, subPlan->database,subPlan->user,subPlan->nodePort);
-	ereport(DEBUG3, (errmsg("OpenNewConnectionsV2 conninfo:%s",conninfo)));
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG3, (errmsg("OpenNewConnectionsV2 conninfo:%s",conninfo)));
+	}
 	subPlan->conn = PQconnectStart(conninfo);
 	subPlan->connectionState = MULTI_CONNECTION_CONNECTING;
 	subPlan->connectionStart = GetCurrentTimestamp();
@@ -793,7 +795,9 @@ StartSubPlanExecution(SubPlanParallel* session) {
 
 static bool
 ReceiveResultsV2(SubPlanParallel* session) {
-	ereport(DEBUG3, (errmsg("subPlanId:%d, walk into ReceiveResultsV2", session->subPlan->subPlanId)));
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG3, (errmsg("subPlanId:%d, walk into ReceiveResultsV2", session->subPlan->subPlanId)));
+	}
 				
 	SubPlanParallelExecution* execution = (SubPlanParallelExecution*)session->subPlanParallelExecution;
 	CopyOutState copyOutState = execution->copyOutState;
@@ -892,8 +896,9 @@ ReceiveResultsV2(SubPlanParallel* session) {
 		session->queryIndex++;
 		rowsProcessed = PQntuples(result);
 		uint32 columnCount = PQnfields(result);
-
-		ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  rowsProcessed: %d ########",rowsProcessed)));
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.5  rowsProcessed: %d ########",rowsProcessed)));
+		}
 		if (session->writeBinarySignature == false) {
 			//ereport(DEBUG3, (errmsg("#########   ReceiveResultsV2  1.6  ########")));
 			session->columnValues = palloc0(columnCount * sizeof(Datum));
@@ -1104,10 +1109,12 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 				durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 				session->queryDoneTimeCost = durationMillisecs;
-				ereport(DEBUG1, (errmsg("-------subplan %d run query startConnectionTime:%s, connectionReadyTimeCode:%ld, sendQueryTimeCost:%ld, queryDoneTimeCost:%ld, rowsProcessed:%d, queryIndex:%d, writeToLocalFileTimeCost:%d", 
-				 	session->subPlan->subPlanId, timestamptz_to_str(session->connectionStart), session->connectReadyTimeCost,
-				 	session->sendQueryTimeCost, session->queryDoneTimeCost, session->rowsProcessed, session->queryIndex,
-				 	session->writeToLocalFileTimeCost)));
+				if (IsLoggableLevel(DEBUG1)) {
+					ereport(DEBUG1, (errmsg("-------subplan %d run query startConnectionTime:%s, connectionReadyTimeCode:%ld, sendQueryTimeCost:%ld, queryDoneTimeCost:%ld, rowsProcessed:%d, queryIndex:%d, writeToLocalFileTimeCost:%d", 
+					 	session->subPlan->subPlanId, timestamptz_to_str(session->connectionStart), session->connectReadyTimeCost,
+					 	session->sendQueryTimeCost, session->queryDoneTimeCost, session->rowsProcessed, session->queryIndex,
+					 	session->writeToLocalFileTimeCost)));
+				}
 				if (session->columnValues != NULL) {
 					pfree(session->columnValues);
 				}
@@ -1120,8 +1127,7 @@ TransactionStateMachineV2(SubPlanParallel* session)
 				if (session->typeArray != NULL) {
 					pfree(session->typeArray);
 				}
-	
-				ereport(DEBUG3, (errmsg("#########  testtesttesttesttesttesttest ############")));
+
 				session->transactionState = REMOTE_TRANS_CLEARING_RESULTS;
 				session->queryDone = true;
 				execution->unfinishedTaskCount--;
@@ -1547,7 +1553,9 @@ ProcessWaitEventsV2(SubPlanParallelExecution *execution, WaitEvent *events, int 
 
 		if (event->events & WL_LATCH_SET)
 		{
-			ereport(DEBUG3, (errmsg("#########  event->events & WL_LATCH_SET  ########")));
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("#########  event->events & WL_LATCH_SET  ########")));
+			}
 			ResetLatch(MyLatch);
 
 			if (execution->raiseInterrupts)
@@ -1628,7 +1636,9 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 			// 								  eventSetSize, WAIT_EVENT_CLIENT_READ);
 			ProcessWaitEventsV2(execution, events, eventCount, &cancellationReceived);
 		}
-		ereport(DEBUG1, (errmsg("#########  whileLoopTime :%d ########", whileLoopTime)));
+		if (IsLoggableLevel(DEBUG1)) {
+			ereport(DEBUG1, (errmsg("#########  whileLoopTime :%d ########", whileLoopTime)));
+		}
 		if (events != NULL)
 		{
 			pfree(events);
@@ -1645,8 +1655,10 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		// close connection
 		foreach_ptr(plan, execution->parallelTaskList)
 		{
-			ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
-				 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
+			if (IsLoggableLevel(DEBUG1)) {
+				ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
+					 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
+			}
 			if (plan->conn != NULL)
 			{
 				PQfinish(plan->conn);
@@ -1687,8 +1699,10 @@ RunSubPlanParallelExecution(SubPlanParallelExecution *execution) {
 		SubPlanParallel *plan = NULL;
 		foreach_ptr(plan, execution->parallelTaskList)
 		{
-			ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
-				 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
+			if (IsLoggableLevel(DEBUG1)) {
+				ereport(DEBUG1, (errmsg("##### subplan %d  rowsProcessed:%d, connectionStateMachineTime:%d, transactionStateMachineTime:%d ,queryIndex:%d", 
+					 	plan->subPlan->subPlanId, plan->rowsProcessed, plan->connectionStateMachineTime, plan->transactionStateMachineTime, plan->queryIndex)));
+			}
 			if (plan->conn != NULL)
 			{
 				PQfinish(plan->conn);
@@ -1715,7 +1729,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	}
 	uint64 planId = distributedPlan->planId;
 	List *subPlanList = distributedPlan->subPlanList;
-
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG3, (errmsg("ExecuteSubPlans planId:%d , list_length(subPlanList):%d",planId, list_length(subPlanList))));
+	}
 	if (subPlanList == NIL)
 	{
 		/* no subplans to execute */
@@ -1763,10 +1779,11 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 	// 	elog_node_display(LOG, "plannedStmt subplans parse tree", plannedStmt->subplans, Debug_pretty_print);
 	// }
 	/* ------------- danny test end ---------------  */
-
+	//ereport(DEBUG3, (errmsg("MakeIntermediateResultHTAB:")));
 	HTAB *intermediateResultsHash = MakeIntermediateResultHTAB();
+	//ereport(DEBUG3, (errmsg("RecordSubplanExecutionsOnNodes:")));
 	RecordSubplanExecutionsOnNodes(intermediateResultsHash, distributedPlan);
-
+	//ereport(DEBUG3, (errmsg("UseCoordinatedTransaction")));
 	/*
 	 * Make sure that this transaction has a distributed transaction ID.
 	 *
@@ -1892,9 +1909,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		bool useIntermediateResult = false;
 		IntermediateResultsHashEntry *entry = SearchIntermediateResult(intermediateResultsHash, resultId);
 		//ereport(DEBUG3, (errmsg("####### 1")));
-		if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
-			&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
-			&& entry->writeLocalFile == true){
+		if(list_length(entry->nodeIdList) == 0){
+		// if (plannedStmt != NULL && plannedStmt->planTree != NULL && plannedStmt->commandType == CMD_SELECT && plannedStmt->hasReturning == false 
+		// 	&& plannedStmt->hasModifyingCTE == false && plannedStmt->subplans == NULL && plannedStmt->rtable != NULL && list_length(entry->nodeIdList) == 0 
+		// 	&& entry->writeLocalFile == true){
 			//ereport(DEBUG3, (errmsg("####### 2")));
 			CustomScan *customScan = (CustomScan *)plannedStmt->planTree;
 			if (list_length(customScan->custom_private) == 1 && CitusIsA((Node *) linitial(customScan->custom_private), DistributedPlan)) {
@@ -1992,8 +2010,12 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG1, (errmsg("-------start time: %lld, run splite subplan to parallel and sequence list time cost:%d" , startTime, durationMillisecs)));
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG1, (errmsg("-------start time: %lld, run splite subplan to parallel and sequence list time cost:%d" , startTime, durationMillisecs)));
+	}
 	//sleep(50000);
+
+	// 2. run these independent subplans parallel
 	startTimestamp = GetCurrentTimestamp();
 	startTime = getTimeMilliseconds();
 
@@ -2003,10 +2025,10 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG1, (errmsg("-------start time: %lld, run parallel query time cost:%d", startTime, durationMillisecs)));
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG1, (errmsg("-------start time: %lld, run parallel query time cost:%d", startTime, durationMillisecs)));
+	}
 	
-	
-	// 2. run these independent subplans parallel
 	// startTimestamp = GetCurrentTimestamp();
 	// SubPlanParallel* pSubPlan = NULL;
 	// foreach_ptr(pSubPlan, parallelJobList) {
@@ -2279,7 +2301,9 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 		subPlan->durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 		subPlan->durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
 		/* ------------- danny test begin ---------------  */
-		ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		if (IsLoggableLevel(DEBUG3)) {
+			ereport(DEBUG3, (errmsg("$$$$$$$$$$$$$$$$$$resultId:%s,start_time:%d,run_duration:%f" ,resultId,start_time, subPlan->durationMillisecs)));
+		}
 		/* ------------- danny test end ---------------  */
 		subPlan->bytesSentPerWorker = RemoteFileDestReceiverBytesSent(copyDest);
 		subPlan->remoteWorkerCount = list_length(remoteWorkerNodeList);
@@ -2293,5 +2317,7 @@ ExecuteSubPlans(DistributedPlan *distributedPlan)
 							&durationMicrosecs);
 	durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 	durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-	ereport(DEBUG1, (errmsg("-------start time: %lld, run sequentially query time cost:%d" , startTime, durationMillisecs)));
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG1, (errmsg("-------start time: %lld, run sequentially query time cost:%d" , startTime, durationMillisecs)));
+	}
 }

@@ -86,6 +86,8 @@
 #include "catalog/pg_proc.h"
 #include "optimizer/planmain.h"
 
+#include "nodes/print.h"
+
 /* intermediate value for INSERT processing */
 typedef struct InsertValues
 {
@@ -150,6 +152,11 @@ static void ErrorIfNoShardsExist(CitusTableCacheEntry *cacheEntry);
 static DeferredErrorMessage * DeferErrorIfModifyView(Query *queryTree);
 static Job * CreateJob(Query *query);
 static Task * CreateTask(TaskType taskType);
+static void
+CreateSingleWorkerRunableRouterSelectPlan(DistributedPlan *distributedPlan, 
+								 Query *query, Query *originalQuery);
+static Job * 
+SingleWorkerRunableRouterJob(Query *query, DeferredErrorMessage **planningError);
 static Job * RouterJob(Query *originalQuery,
 					   PlannerRestrictionContext *plannerRestrictionContext,
 					   DeferredErrorMessage **planningError);
@@ -182,6 +189,14 @@ static DeferredErrorMessage * DeferErrorIfUnsupportedLocalTableJoin(List *rangeT
 static bool IsTableLocallyAccessible(Oid relationId);
 
 
+DistributedPlan *
+CreateSingleWorkerRunableRouterPlan(Query *query) {
+	DistributedPlan *distributedPlan = CitusMakeNode(DistributedPlan);
+	Query *originalQuery = copyObject(query);
+	CreateSingleWorkerRunableRouterSelectPlan(distributedPlan, query, originalQuery);
+	return distributedPlan;
+}
+
 /*
  * CreateRouterPlan attempts to create a router executor plan for the given
  * SELECT statement. ->planningError is set if planning fails.
@@ -197,13 +212,19 @@ CreateRouterPlan(Query *originalQuery, Query *query,
 
 	if (distributedPlan->planningError == NULL)
 	{
+		if (IsLoggableLevel(DEBUG3))
+		{
+			ereport(DEBUG3, (errmsg("distributedPlan->planningError == NULL, ready to run CreateSingleTaskRouterSelectPlan")));
+		}
 		CreateSingleTaskRouterSelectPlan(distributedPlan, originalQuery, query,
 										 plannerRestrictionContext);
 	}
-
 	distributedPlan->fastPathRouterPlan =
 		plannerRestrictionContext->fastPathRestrictionContext->fastPathRouterQuery;
-
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("distributedPlan->fastPathRouterPlan :%d", distributedPlan->fastPathRouterPlan)));
+	}	
 	return distributedPlan;
 }
 
@@ -280,7 +301,7 @@ CreateSingleTaskRouterSelectPlan(DistributedPlan *distributedPlan, Query *origin
 
 	Job *job = RouterJob(originalQuery, plannerRestrictionContext,
 						 &distributedPlan->planningError);
-
+	//elog_node_display(LOG, "job parse tree", job, Debug_pretty_print);
 	if (distributedPlan->planningError != NULL)
 	{
 		/* query cannot be handled by this planner */
@@ -1743,6 +1764,121 @@ ExtractFirstCitusTableId(Query *query)
 	return distributedTableId;
 }
 
+/*
+ * 
+ * todo
+ * 
+ */
+static void
+CreateSingleWorkerRunableRouterSelectPlan(DistributedPlan *distributedPlan, 
+								 Query *query, Query *originalQuery)
+{
+	Assert(query->commandType == CMD_SELECT);
+
+	distributedPlan->modLevel = RowModifyLevelForQuery(query);
+	DeferredErrorMessage **planningError = NULL;
+	Job *job = SingleWorkerRunableRouterJob(originalQuery, planningError);
+	//elog_node_display(LOG, "job parse tree", job, Debug_pretty_print);
+	ereport(DEBUG2, (errmsg("after SingleWorkerRunableRouterJob")));
+	if (job == NULL)
+	{
+		/* query cannot be handled by this planner */
+		return;
+	}
+
+	ereport(DEBUG2, (errmsg("Create router plan")));
+
+	distributedPlan->workerJob = job;
+	distributedPlan->combineQuery = NULL;
+	distributedPlan->expectResults = true;
+}
+
+static Job * 
+SingleWorkerRunableRouterJob(Query *query, DeferredErrorMessage **planningError)
+{
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.1")));
+	uint64 shardId = INVALID_SHARD_ID;
+	List *placementList = NIL;
+	List *relationShardList = NIL;
+	List *prunedShardIntervalListList = NIL;
+	bool isMultiShardModifyQuery = false;
+	Const *partitionKeyValue = NULL;
+
+	/* router planner should create task even if it doesn't hit a shard at all */
+	bool replacePrunedQueryWithDummy = true;
+
+	bool isLocalTableModification = false;
+	if (query->hasModifyingCTE)
+	{
+		*planningError = DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									  "query hasModifyingCTE",
+									  NULL, NULL);
+		return NULL;
+	}
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.2")));
+	List *rangeTableList = ExtractRangeTableEntryList(query);
+	relationShardList = RelationShardListForSingleShardTables(rangeTableList);
+	ereport(DEBUG2, (errmsg("list_length(relationShardList):%d", list_length(relationShardList))));
+	if (list_length(relationShardList) == 0) {
+		*planningError = DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									  "query do not involve distributed table",
+									  NULL, NULL);
+		return NULL;
+	}
+	// relationShard->relationId = shardInterval->relationId;
+	// 		relationShard->shardId
+	RelationShard *si = (RelationShard *) lfirst(list_head(relationShardList));
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.3, relationId:%d ,shardId:%d", si->relationId,si->shardId )));
+	
+	// foreach_ptr(si, relationShardList)
+	// {
+	// 	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.301, relationId:%d ,shardId:%d", si->relationId,si->shardId ))); 
+	// }
+
+	List *shardPlacementList = ActiveShardPlacementList(si->shardId);
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.31")));
+	if (list_length(shardPlacementList) == 0) {
+		*planningError = DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									  "shardPlacementList is empty",
+									  NULL, NULL);
+		return NULL;
+	}
+	ShardPlacement *shardPlacement = NULL;
+	ShardPlacement *targetShardPlacement = NULL;
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.4")));
+	foreach_ptr(shardPlacement, shardPlacementList)
+	{
+		if (shardPlacement->shardState == SHARD_STATE_ACTIVE) {
+			targetShardPlacement = CitusMakeNode(ShardPlacement);
+			targetShardPlacement->nodeId = shardPlacement->nodeId;
+			targetShardPlacement->nodeName = shardPlacement->nodeName;
+			targetShardPlacement->nodePort = shardPlacement->nodePort;
+			targetShardPlacement->groupId = shardPlacement->groupId;
+			targetShardPlacement->placementId = shardPlacement->placementId;
+			targetShardPlacement->shardId = shardPlacement->shardId;
+			shardId = shardPlacement->shardId;
+			targetShardPlacement->shardLength = shardPlacement->shardLength;
+			targetShardPlacement->shardState = shardPlacement->shardState;
+			targetShardPlacement->partitionMethod = shardPlacement->partitionMethod;
+			targetShardPlacement->colocationGroupId = shardPlacement->colocationGroupId;
+			targetShardPlacement->representativeValue = shardPlacement->representativeValue;
+			break;
+		}
+	}
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.5")));
+	placementList = lappend(placementList, targetShardPlacement);
+	UpdateRelationToShardNames((Node *) query, relationShardList);
+	Job *job = CreateJob(query);
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.6")));
+	GenerateSingleShardRouterTaskList(job, relationShardList,
+										  placementList, shardId,
+										  false);
+	//elog_node_display(LOG, "after GenerateSingleShardRouterTaskList, job parse tree", job, Debug_pretty_print);
+	job->requiresCoordinatorEvaluation = false;
+	ereport(DEBUG2, (errmsg("walk into SingleWorkerRunableRouterJob 0.7")));
+	return job;
+}
+
 
 /*
  * RouterJob builds a Job to represent a single shard select/update/delete and
@@ -2191,6 +2327,41 @@ PlanRouterQuery(Query *originalQuery,
 				Const **partitionValueConst,
 				bool *isLocalTableModification)
 {
+	ereport(DEBUG3, (errmsg("walk into PlanRouterQuery")));
+	StringInfo subqueryString = makeStringInfo();
+	pg_get_query_def(originalQuery, subqueryString);
+	ereport(DEBUG1, (errmsg("------walk into PlanRouterQuery, query:%s", ApplyLogRedaction(subqueryString->data))));
+	// if (plannerRestrictionContext->allTablesAreDistributedTable && plannerRestrictionContext->allTablesAreSingleShard 
+	// 	&& plannerRestrictionContext->tablesLocatedInMultiWorker) {
+	// 	DeferredErrorMessage *planningError = NULL;
+	// 	planningError = DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+	// 								  "found no worker with all shard placements",
+	// 								  NULL, NULL);
+	// 	return planningError;
+	// }
+	
+	
+
+	// if sql involved tables in multi worker, then raise a error
+	DeferredErrorMessage *message = DeferErrorIfCannotPushdownSubqueryV2(originalQuery);
+	if (IsLoggableLevel(DEBUG1)) {
+		//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+		// TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+		// 			&durationMicrosecs);
+		// durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+		// durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+		// ereport(DEBUG1, (errmsg("-------run DeferErrorIfCannotPushdownSubqueryV2,start_time:%s, run time cost:%d",
+		//  timestamptz_to_str(startTimestamp), durationMillisecs)));
+	}
+	if (message != NULL) {
+		DeferredErrorMessage *planningError = NULL;
+		planningError = DeferredError(ERRCODE_FEATURE_NOT_SUPPORTED,
+									  "found no worker with all shard placements",
+									  NULL, NULL);
+		return planningError;
+	}
+
+
 	bool isMultiShardQuery = false;
 	DeferredErrorMessage *planningError = NULL;
 	bool shardsPresent = false;
@@ -2277,6 +2448,7 @@ PlanRouterQuery(Query *originalQuery,
 	*relationShardList =
 		RelationShardListForShardIntervalList(*prunedShardIntervalListList,
 											  &shardsPresent);
+	ereport(DEBUG3, (errmsg("list_length(relationShardList):%d", list_length(relationShardList))));
 
 	if (!shardsPresent && !replacePrunedQueryWithDummy)
 	{
@@ -2485,6 +2657,32 @@ CreateDummyPlacement(bool hasLocalRelation)
 	return dummyPlacement;
 }
 
+/*
+ * RelationShardListForSingleShardTables is a utility function which gets a rangeTableList of
+ * query, and returns a list of RelationShard.
+ * ps: need to make sure all distributed table is single shard table
+ */
+List *
+RelationShardListForSingleShardTables(List *rangeTableList)
+{
+	List *relationShardList = NIL;
+	ListCell *rangeTableCell = NULL;
+	foreach(rangeTableCell, rangeTableList)
+	{
+		RangeTblEntry *rte = (RangeTblEntry *) lfirst(rangeTableCell);
+		if (rte->rtekind == RTE_RELATION && rte->relkind == RELKIND_RELATION) {
+			Oid distributedTableId = rte->relid;
+			CitusTableCacheEntry *cacheEntry = GetCitusTableCacheEntry(distributedTableId);
+			ShardInterval *shardInterval = cacheEntry->sortedShardIntervalArray[0];
+			RelationShard *relationShard = CitusMakeNode(RelationShard);
+			relationShard->relationId = shardInterval->relationId;
+			relationShard->shardId = shardInterval->shardId;
+			ereport(DEBUG3, (errmsg("relationId:%d, shardId:%d", relationShard->relationId, relationShard->shardId)));
+			relationShardList = lappend(relationShardList, relationShard);
+		}
+	}
+	return relationShardList;
+}
 
 /*
  * RelationShardListForShardIntervalList is a utility function which gets a list of
@@ -3511,6 +3709,10 @@ ExtractInsertPartitionKeyValue(Query *query)
 static DeferredErrorMessage *
 DeferErrorIfUnsupportedRouterPlannableSelectQuery(Query *query)
 {
+	if (IsLoggableLevel(DEBUG3))
+	{
+		ereport(DEBUG3, (errmsg("walk into DeferErrorIfUnsupportedRouterPlannableSelectQuery")));
+	}
 	List *rangeTableRelationList = NIL;
 	ListCell *rangeTableRelationCell = NULL;
 

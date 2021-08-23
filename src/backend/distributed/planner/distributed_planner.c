@@ -104,6 +104,7 @@ typedef struct RegenerateSimpleViewContext {
 	int *nodeSignal;  // mark if worker has been found
 	int nodeIdsLengh;
 	Query *viewQuery;
+	bool allSubQueryNotHaveJoinOperator;
 } RegenerateSimpleViewContext;
 
 // PerNodeUnionSubQueries *perNode = palloc0(1000 * sizeof(PerNodeUnionSubQueries));
@@ -302,7 +303,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(Query *query, int *lev
 								&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
 								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL) {
 								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
-								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 									allPhyisicalTableFollowRules = false;
 									break;
 								}
@@ -350,7 +351,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(Query *query, int *lev
 										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
 										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
 										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
-										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 											allPhyisicalTableFollowRules = false;
 											break;
 										}
@@ -413,7 +414,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSimpleViewQuery(Query *query, int *lev
 										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
 										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
 										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
-										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 											allPhyisicalTableFollowRules = false;
 											break;
 										}
@@ -469,7 +470,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSameSimpleViewQuery(Query *query, int 
 								&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
 								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL) {
 								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
-								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 									allPhyisicalTableFollowRules = false;
 									break;
 								}
@@ -548,7 +549,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSameSimpleViewQuery(Query *query, int 
 										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
 										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
 										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
-										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 											allPhyisicalTableFollowRules = false;
 											break;
 										}
@@ -640,7 +641,7 @@ static bool IsOneLevelOrTwoLevelSelectFromSameSimpleViewQuery(Query *query, int 
 										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
 										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
 										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
-										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 											allPhyisicalTableFollowRules = false;
 											break;
 										}
@@ -792,20 +793,22 @@ static void ResetSimpleViewQuery(Query *query, List *rteList, SetOperationStmt *
 	// regenerate SetOperationStmt
 	// char		stack_top_loc1;
 	// ereport(DEBUG1, (errmsg("-------9.1 stack_base:%ld", (long) (&stack_top_loc1))));
-	ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 0")));
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 0")));
+	}
 	ListCell   *lc;
 	int i = 0;
 	SetOperationStmt *example =  copyObject(sosExample);
 	//elog_node_display(LOG, "example  parse tree", example, Debug_pretty_print);
 	SetOperationStmt *head = example; 
 	List *newRteList = NIL;
-	ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 1")));
+	//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 1")));
 	//ereport(DEBUG3, (errmsg("############### 1.1  ################")));
 	foreach(lc, rteList) {
 		//ereport(DEBUG3, (errmsg("############### 1.2  ################")));
 		if (pushDownWhere && originJoinTree != NULL) {
 			// for this condition, query is a view defination: select xxx from a union all select xxx from b union all select xxx from c
-			ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 1.1")));
+			//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 1.1")));
 			// update view involved tables from pattern : select xxxx from table 
 			// to 
 			// select * from (select xxx from table) test where yyy
@@ -851,7 +854,7 @@ static void ResetSimpleViewQuery(Query *query, List *rteList, SetOperationStmt *
 			//ereport(DEBUG1, (errmsg("-------222222----------------------")));
 			newRteList = lappend(newRteList, rangeTableEntryOuter);
 		}
-		ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 2")));
+		//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 2")));
 		// construct SetOperationStmt
 		if (i == 0) {
 			RangeTblRef *nextRangeTableRef = makeNode(RangeTblRef);
@@ -869,13 +872,13 @@ static void ResetSimpleViewQuery(Query *query, List *rteList, SetOperationStmt *
 			newNode->rarg = nextRangeTableRef;
 			head = newNode;
 		}
-		ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 3")));
+		//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 3")));
 		//elog_node_display(LOG, "-----head  parse tree", head, Debug_pretty_print);
 		i++;
 	}
 	// char		stack_top_loc2;
 	// ereport(DEBUG1, (errmsg("-------9.2 stack_base:%ld", (long) (&stack_top_loc1) - (long) (&stack_top_loc2))));
-	ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 4")));
+	//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 4")));
 	if (pushDownWhere && originJoinTree != NULL) {
 		// elog_node_display(LOG, "walk into ResetSimpleViewQuery 4.0 query parse tree", head, Debug_pretty_print);
 		// elog_node_display(LOG, "walk into ResetSimpleViewQuery 4.1 query parse tree", query, Debug_pretty_print);
@@ -952,7 +955,7 @@ static void ResetSimpleViewQuery(Query *query, List *rteList, SetOperationStmt *
 		}
 	} else {  // for standard select xxx form view where yyy group by, make where condition push down to subquery
 		if (originJoinTree != NULL) {
-			ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 4")));
+			//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 4")));
 			int index = 1;
 			query->rtable = newRteList;
 			query->setOperations = head;
@@ -964,11 +967,11 @@ static void ResetSimpleViewQuery(Query *query, List *rteList, SetOperationStmt *
 					((Var *)tle->expr)->varnosyn = 1;
 				}
 			}
-			ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 6")));
+			//ereport(DEBUG3, (errmsg("walk into ResetSimpleViewQuery 6")));
 			query->stmt_location = -1;
 			query->stmt_len = -1;
-			ereport(DEBUG1, (errmsg("-------list_length(newRteList):%d", list_length(newRteList))));
-			ereport(DEBUG1, (errmsg("-------list_length(query->rtable):%d", list_length(query->rtable))));
+			//ereport(DEBUG1, (errmsg("-------list_length(newRteList):%d", list_length(newRteList))));
+			//ereport(DEBUG1, (errmsg("-------list_length(query->rtable):%d", list_length(query->rtable))));
 		}
 	}
 	
@@ -1628,6 +1631,29 @@ static bool RecursivelyRegenerateSimpleViewQuery(Query *query, void *context) {
 	RegenerateSimpleViewContext* rsvContext = (RegenerateSimpleViewContext *)context;
 	//elog_node_display(LOG, "origin query parse tree", query, Debug_pretty_print);
 	//ereport(DEBUG1, (errmsg("-------walk into RecursivelyRegenerateSimpleViewQuery")));
+	if (query->commandType != CMD_SELECT || query->hasWindowFuncs != false || query->hasTargetSRFs != false || query->hasSubLinks != false
+		&& query->hasDistinctOn != false || query->hasRecursive != false || query->hasModifyingCTE != false || query->havingQual != NULL
+		&& query->hasForUpdate != false || query->hasRowSecurity != false || query->cteList != NULL) {
+		rsvContext->allSubQueryNotHaveJoinOperator = false;
+	} else {
+		// make sure all subquery not have join operater
+		if (list_length(query->rtable) > 1) {
+			bool haveJoinSig = false;
+			if (query->jointree != NULL && list_length(query->jointree->fromlist) >= 1) {
+				ListCell   *lc;
+				foreach(lc, query->jointree->fromlist){
+					Node	   *jtnode = (Node *) lfirst(lc);
+					if (IsA(jtnode, JoinExpr)) {
+						rsvContext->allSubQueryNotHaveJoinOperator = false;
+						break;
+					}
+				}
+				if (list_length(query->jointree->fromlist) >= 2) {
+					rsvContext->allSubQueryNotHaveJoinOperator = false;
+				}
+ 			}
+		}
+	}
 	if (query->commandType == CMD_SELECT && query->hasWindowFuncs == false && query->hasTargetSRFs == false && query->hasSubLinks == false
 		&& query->hasDistinctOn == false && query->hasRecursive == false && query->hasModifyingCTE == false && query->havingQual == NULL
 		&& query->hasForUpdate == false && query->hasRowSecurity == false && query->cteList == NULL && list_length(query->rtable) == 1
@@ -1653,10 +1679,9 @@ static bool RecursivelyRegenerateSimpleViewQuery(Query *query, void *context) {
 							if (ssubquery->commandType == CMD_SELECT && ssubquery->hasAggs == false && ssubquery->hasWindowFuncs == false&& ssubquery->hasTargetSRFs == false
 								&& ssubquery->hasSubLinks == false && ssubquery->hasDistinctOn == false&& ssubquery->hasRecursive == false&& ssubquery->hasModifyingCTE == false
 								&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
-								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL
-								&& ssubquery->jointree->quals == NULL){
+								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL){
 								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
-								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 									allPhyisicalTableFollowRules = false;
 									break;
 								}
@@ -1780,7 +1805,7 @@ static bool RecursivelyRegenerateSimpleViewQuery(Query *query, void *context) {
 						return false;
 					}
 				}
-   			}
+   			} 
 		}
 	}
 	//ereport(DEBUG1, (errmsg("############### 3333################")));
@@ -1807,7 +1832,7 @@ RecursivelyRegenerateSubqueries(Query *query) {
 	long durationSeconds = 0.0;
 	int durationMicrosecs = 0;
 	long durationMillisecs = 0.0;
-	print_mem(getpid(), "before ExpandSimpleViewInvolvedTableToUpperLevel");
+	//print_mem(getpid(), "before ExpandSimpleViewInvolvedTableToUpperLevel");
 
 	if (query->commandType == CMD_SELECT && query->utilityStmt == NULL && query->hasAggs == false && query->hasWindowFuncs == false 
 		&& query->hasTargetSRFs == false && query->hasSubLinks == false && query->hasDistinctOn == false && query->hasRecursive == false 
@@ -1918,7 +1943,7 @@ RecursivelyRegenerateSubqueries(Query *query) {
 								&& ssubquery->hasForUpdate == false&& ssubquery->hasRowSecurity == false && ssubquery->cteList == NULL && list_length(ssubquery->rtable) == 1 
 								&& ssubquery->jointree != NULL && list_length(ssubquery->jointree->fromlist) == 1 && ssubquery->setOperations == NULL){
 								RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(ssubquery->rtable));
-								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+								if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 									allPhyisicalTableFollowRules = false;
 									break;
 								}
@@ -2052,7 +2077,7 @@ RecursivelyRegenerateSubqueries(Query *query) {
 										&& sssubquery->hasRowSecurity == false && sssubquery->cteList == NULL && list_length(sssubquery->rtable) == 1 
 										&& sssubquery->jointree != NULL && list_length(sssubquery->jointree->fromlist) == 1 && sssubquery->setOperations == NULL){
 										RangeTblEntry *ssrte = (RangeTblEntry *) lfirst(list_head(sssubquery->rtable));
-										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != 'r') {
+										if (ssrte->rtekind != RTE_RELATION || ssrte->relkind != RELKIND_RELATION) {
 											allPhyisicalTableFollowRules = false;
 											break;
 										}
@@ -2240,7 +2265,7 @@ static bool RecursivelyPlanSetOperationsV2Helper(Query *query, Node *node, int* 
 				ereport(DEBUG3, (errmsg("angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rte->rtekind, rte->relid)));
 			}
 			Oid distributedTableId = rte->relid;
-			if (rte->rtekind == RTE_RELATION && rte->relkind == 'r') {
+			if (rte->rtekind == RTE_RELATION && rte->relkind == RELKIND_RELATION) {
 				Oid distributedTableId = rte->relid;
 				if (findFirstRTE == true) {
 					return false;
@@ -2418,7 +2443,9 @@ static void UnionSameWorkerQueryTogether(Query *query, Query **viewQuery) {
 		}
 
 	}
-	ereport(DEBUG1, (errmsg("##### UnionSameWorkerQueryTogether  pnsq length:%d", list_length(workerRte))));
+	if (IsLoggableLevel(DEBUG3)) {
+		ereport(DEBUG1, (errmsg("##### UnionSameWorkerQueryTogether  pnsq length:%d", list_length(workerRte))));
+	}
 	// make same worker query union on again
 	Query* subquery = rte->subquery;
 	viewSetOperations = (SetOperationStmt *) subquery->setOperations;
@@ -2655,10 +2682,10 @@ distributed_planner(Query *parse,
 		//ereport(DEBUG1, (errmsg("-------1.0 stack_base:%ld", &stack_base)));
 		// ereport(DEBUG1, (errmsg("-------walk into distributed_planner, all job start_time:%s", timestamptz_to_str(GetCurrentTimestamp()))));
 		// print_mem(getpid(), "distributed_planner");
-		// StringInfo subqueryString = makeStringInfo();
-		// pg_get_query_def(parse, subqueryString);
-		// ereport(DEBUG1, (errmsg("------walk into distributed_planner, query:%s",ApplyLogRedaction(subqueryString->data))));
-		// elog_node_display(LOG, "Query parse tree", parse, Debug_pretty_print);
+		StringInfo subqueryString = makeStringInfo();
+		pg_get_query_def(parse, subqueryString);
+		ereport(DEBUG1, (errmsg("------walk into distributed_planner, query:%s", ApplyLogRedaction(subqueryString->data))));
+		//qelog_node_display(LOG, "Query parse tree", parse, Debug_pretty_print);
 	}
 	bool needsDistributedPlanning = false;
 	bool fastPathRouterQuery = false;
@@ -2667,16 +2694,10 @@ distributed_planner(Query *parse,
 	List *rangeTableList = ExtractRangeTableEntryList(parse);
 
 	/* ------------- danny test begin ---------------  */
+
 	if (IsLoggableLevel(DEBUG1))
 	{
-		//ereport(DEBUG1, (errmsg("------walk into distributed_planner-------")));
-		print_mem(getpid(), "distributed_planner");
-		// StringInfo subqueryString = makeStringInfo();
-		// pg_get_query_def(parse, subqueryString);
-		// ereport(DEBUG1, (errmsg("------walk into distributed_planner, query:%s",ApplyLogRedaction(subqueryString->data))));
-		
 		// ListCell *rangeTableCell = NULL;
-
 		// foreach(rangeTableCell, rangeTableList)
 		// {
 		// 	RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
@@ -2684,6 +2705,17 @@ distributed_planner(Query *parse,
 		// }
 	}
 	/* ------------- danny test  end---------------  */
+	bool selectFromSameSimpleViewLinkedByUnionAll = false;
+	bool allSubQueryNotHaveJoinOperator = true;
+
+	
+
+	bool allTablesAreDistributedTable;
+	bool allTablesAreSingleShard;
+	bool tablesLocatedInMultiWorker;
+	bool containsReadIntermediateResultFunction;
+	GetRelatedTableTypeOfQuery(parse, &allTablesAreDistributedTable, &allTablesAreSingleShard,
+		&tablesLocatedInMultiWorker, &containsReadIntermediateResultFunction);
 
 	if (cursorOptions & CURSOR_OPT_FORCE_DISTRIBUTED)
 	{
@@ -2698,99 +2730,114 @@ distributed_planner(Query *parse,
 		if (needsDistributedPlanning)
 		{
 			/* ------------- danny test begin ---------------  */
-			if (parse->querySource != QSRC_PARSER) {
-				TimestampTz startTimestamp = GetCurrentTimestamp();
-				long durationSeconds = 0.0;
-				int durationMicrosecs = 0;
-				long durationMillisecs = 0.0;
-				print_mem(getpid(), "before RecursivelyRegenerateSubqueries");
-				MemoryContext functionCallContext = AllocSetContextCreate(CurrentMemoryContext,
-															  "Regenerate Subqueries Function Call Context",
-															  ALLOCSET_DEFAULT_MINSIZE,
-															  ALLOCSET_DEFAULT_INITSIZE,
-															  ALLOCSET_DEFAULT_MAXSIZE);
-				MemoryContext oldContext = MemoryContextSwitchTo(functionCallContext);
-				Query* firstViewSubQuery = NULL; 
-				// char		stack_top_loc;
-				// ereport(DEBUG1, (errmsg("-------2.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc))));
-				bool sig = IsSelectFromQueryWhichIsSameSimpleViewLinkedByUnionAll(parse, &firstViewSubQuery);
-				// char		stack_top_loc2;
-				// ereport(DEBUG1, (errmsg("-------3.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc2))));
-				if (IsLoggableLevel(DEBUG1)) {
-					//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
-					TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-								&durationMicrosecs);
-					durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-					durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-					ereport(DEBUG1, (errmsg("-------run IsSelectFromQueryWhichIsSameSimpleViewLinkedByUnionAll, start_time:%s, reparse query tree time cost:%d, sig:%d",
-					 timestamptz_to_str(startTimestamp), durationMillisecs, sig)));
-				}
-				if (sig) {
-					startTimestamp = GetCurrentTimestamp();
-					UnionSameWorkerQueryTogether(parse, &firstViewSubQuery);
-					if (IsLoggableLevel(DEBUG1)) {
-						//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
-						TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-									&durationMicrosecs);
-						durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-						durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-						ereport(DEBUG1, (errmsg("-------run UnionSameWorkerQueryTogether, start_time:%s, reparse query tree time cost:%d",
-						 timestamptz_to_str(startTimestamp), durationMillisecs)));
-					}
-				} else {
-					print_mem(getpid(), "before RecursivelyRegenerateSimpleViewQuery");
-					startTimestamp = GetCurrentTimestamp();
-					RegenerateSimpleViewContext  rsvContext;
-					rsvContext.perNode = palloc0(1000 * sizeof(PerNodeUnionSubQueries));
-					rsvContext.nodeIds = palloc0(1000 * sizeof(int));
-					rsvContext.nodeSignal = palloc0(1000 * sizeof(int));  // mark if worker has been found
-					rsvContext.nodeIdsLengh = 0;
-					rsvContext.viewQuery = NULL;
-					
-					//ereport(DEBUG1, (errmsg("------88888-------")));
-					
-					// char		stack_top_loc2;
-					// ereport(DEBUG1, (errmsg("-------4.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc2))));
-					RecursivelyRegenerateSimpleViewQuery(parse, (void *)&rsvContext);
-					// char		stack_top_loc3;
-					// ereport(DEBUG1, (errmsg("-------5.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc3))));
-					if (IsLoggableLevel(DEBUG1)) {
-						//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
-						TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
-									&durationMicrosecs);
-						durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
-						durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-						ereport(DEBUG1, (errmsg("-------run RecursivelyRegenerateSimpleViewQuery, start_time:%s, reparse query tree time cost:%d",
-						 timestamptz_to_str(startTimestamp), durationMillisecs)));
-					}
-					print_mem(getpid(), "after RecursivelyRegenerateSimpleViewQuery");
-
-					// RecursivelyRegenerateSubqueries(parse);
-					// RecursivelyRegenerateUnionAllWalker(parse);
-				}
-				MemoryContextSwitchTo(oldContext);
-				parse = copyObject(parse);
-				MemoryContextReset(functionCallContext);
-				rangeTableList = ExtractRangeTableEntryList(parse);
+			if (allTablesAreDistributedTable && allTablesAreSingleShard && !tablesLocatedInMultiWorker) {
+				;
 			} else {
-				if (IsLoggableLevel(DEBUG1))
-				{
-					ereport(DEBUG1, (errmsg("------this query has been processed--------")));
+				if (parse->querySource != QSRC_PARSER) {
+					TimestampTz startTimestamp = GetCurrentTimestamp();
+					long durationSeconds = 0.0;
+					int durationMicrosecs = 0;
+					long durationMillisecs = 0.0;
+					//print_mem(getpid(), "before RecursivelyRegenerateSubqueries");
+					MemoryContext functionCallContext = AllocSetContextCreate(CurrentMemoryContext,
+																  "Regenerate Subqueries Function Call Context",
+																  ALLOCSET_DEFAULT_MINSIZE,
+																  ALLOCSET_DEFAULT_INITSIZE,
+																  ALLOCSET_DEFAULT_MAXSIZE);
+					MemoryContext oldContext = MemoryContextSwitchTo(functionCallContext);
+					Query* firstViewSubQuery = NULL; 
+					// char		stack_top_loc;
+					// ereport(DEBUG1, (errmsg("-------2.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc))));
+					selectFromSameSimpleViewLinkedByUnionAll = IsSelectFromQueryWhichIsSameSimpleViewLinkedByUnionAll(parse, &firstViewSubQuery);
+					// char		stack_top_loc2;
+					// ereport(DEBUG1, (errmsg("-------3.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc2))));
+					if (IsLoggableLevel(DEBUG1)) {
+						//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+						TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+									&durationMicrosecs);
+						durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+						durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+						ereport(DEBUG1, (errmsg("-------run IsSelectFromQueryWhichIsSameSimpleViewLinkedByUnionAll, start_time:%s, reparse query tree time cost:%d, sig:%d",
+						 timestamptz_to_str(startTimestamp), durationMillisecs, selectFromSameSimpleViewLinkedByUnionAll)));
+					}
+					if (selectFromSameSimpleViewLinkedByUnionAll) {
+						startTimestamp = GetCurrentTimestamp();
+						UnionSameWorkerQueryTogether(parse, &firstViewSubQuery);
+						if (IsLoggableLevel(DEBUG1)) {
+							//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+							TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+										&durationMicrosecs);
+							durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+							durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+							ereport(DEBUG1, (errmsg("-------run UnionSameWorkerQueryTogether, start_time:%s, reparse query tree time cost:%d",
+							 timestamptz_to_str(startTimestamp), durationMillisecs)));
+						}
+					} else {
+						//print_mem(getpid(), "before RecursivelyRegenerateSimpleViewQuery");
+						startTimestamp = GetCurrentTimestamp();
+						RegenerateSimpleViewContext  rsvContext;
+						rsvContext.perNode = palloc0(1000 * sizeof(PerNodeUnionSubQueries));
+						rsvContext.nodeIds = palloc0(1000 * sizeof(int));
+						rsvContext.nodeSignal = palloc0(1000 * sizeof(int));  // mark if worker has been found
+						rsvContext.nodeIdsLengh = 0;
+						rsvContext.viewQuery = NULL;
+						rsvContext.allSubQueryNotHaveJoinOperator = true;
+						
+						//ereport(DEBUG1, (errmsg("------88888-------")));
+						
+						// char		stack_top_loc2;
+						// ereport(DEBUG1, (errmsg("-------4.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc2))));
+						RecursivelyRegenerateSimpleViewQuery(parse, (void *)&rsvContext);
+						allSubQueryNotHaveJoinOperator = rsvContext.allSubQueryNotHaveJoinOperator;
+						// char		stack_top_loc3;
+						// ereport(DEBUG1, (errmsg("-------5.0 stack_base:%ld", (long) (stack_base_ptr - (long)&stack_top_loc3))));
+						if (IsLoggableLevel(DEBUG1)) {
+							//ereport(DEBUG1, (errmsg("~~~~~~~~~~~init regenerate query:%s" , ApplyLogRedaction(subqueryString->data))));
+							TimestampDifference(startTimestamp, GetCurrentTimestamp(), &durationSeconds,
+										&durationMicrosecs);
+							durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
+							durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
+							ereport(DEBUG1, (errmsg("-------run RecursivelyRegenerateSimpleViewQuery, start_time:%s, reparse query tree time cost:%d",
+							 timestamptz_to_str(startTimestamp), durationMillisecs)));
+						}
+						//print_mem(getpid(), "after RecursivelyRegenerateSimpleViewQuery");
+	
+						// RecursivelyRegenerateSubqueries(parse);
+						// RecursivelyRegenerateUnionAllWalker(parse);
+					}
+					if (IsLoggableLevel(DEBUG1)) {
+						StringInfo subqueryString = makeStringInfo();
+						pg_get_query_def(parse, subqueryString);
+						ereport(DEBUG1, (errmsg("#####after reparse query, query:%s", ApplyLogRedaction(subqueryString->data))));
+						//elog_node_display(LOG, "Query parse tree", parse, Debug_pretty_print);
+					}
+					MemoryContextSwitchTo(oldContext);
+					parse = copyObject(parse);
+					MemoryContextReset(functionCallContext);
+					rangeTableList = ExtractRangeTableEntryList(parse);
+				} else {
+					if (IsLoggableLevel(DEBUG1))
+					{
+						ereport(DEBUG1, (errmsg("------this query has been processed--------")));
+					}
 				}
 			}
 			/* ------------- danny test end ---------------  */
 			fastPathRouterQuery = FastPathRouterQuery(parse, &distributionKeyValue);
+			//ereport(DEBUG1, (errmsg("------fastPathRouterQuery:%d ", fastPathRouterQuery)));
 		}
 	}
+
 	//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.0 ")));
 	int rteIdCounter = 1;
-	print_mem(getpid(), "before construct planContext");
+	//print_mem(getpid(), "before construct planContext");
 	DistributedPlanningContext planContext = {
 		.query = parse,
 		.cursorOptions = cursorOptions,
 		.boundParams = boundParams,
+		.doStandardPlannerInTheBegin = false,
 	};
-
+	
 	if (fastPathRouterQuery)
 	{
 		/*
@@ -2800,7 +2847,7 @@ distributed_planner(Query *parse,
 		 *  AssignRTEIdentities.
 		 */
 		planContext.originalQuery = copyObject(parse);
-		print_mem(getpid(), "if (fastPathRouterQuery)");
+		//print_mem(getpid(), "if (fastPathRouterQuery)");
 	}
 	else if (needsDistributedPlanning)
 	{
@@ -2813,23 +2860,38 @@ distributed_planner(Query *parse,
 		 */
 		rteIdCounter = AssignRTEIdentities(rangeTableList, rteIdCounter);
 		planContext.originalQuery = copyObject(parse);
-		print_mem(getpid(), "1.1");
+		//print_mem(getpid(), "1.1");
 		bool setPartitionedTablesInherited = false;
 		AdjustPartitioningForDistributedPlanning(rangeTableList,
 												 setPartitionedTablesInherited);
-		print_mem(getpid(), "1.2");
+		//print_mem(getpid(), "1.2");
 	}
 
 	/*
 	 * Make sure that we hide shard names on the Citus MX worker nodes. See comments in
 	 * ReplaceTableVisibleFunction() for the details.
 	 */
-	print_mem(getpid(), "1.3");
+	//print_mem(getpid(), "1.3");
 	ReplaceTableVisibleFunction((Node *) parse);
-	print_mem(getpid(), "1.4");
+	//print_mem(getpid(), "1.4");
 	/* create a restriction context and put it at the end if context list */
 	planContext.plannerRestrictionContext = CreateAndPushPlannerRestrictionContext();
-	print_mem(getpid(), "1.5");
+	// GetRelatedTableTypeOfQuery(parse, &(planContext.plannerRestrictionContext->allTablesAreDistributedTable), 
+	// 	&(planContext.plannerRestrictionContext->allTablesAreSingleShard),
+	// 	&(planContext.plannerRestrictionContext->tablesLocatedInMultiWorker), 
+	// 	&(planContext.plannerRestrictionContext->containsReadIntermediateResultFunction));
+	planContext.plannerRestrictionContext->allTablesAreDistributedTable = allTablesAreDistributedTable;
+	planContext.plannerRestrictionContext->allTablesAreSingleShard = allTablesAreSingleShard;
+	planContext.plannerRestrictionContext->tablesLocatedInMultiWorker = tablesLocatedInMultiWorker;
+	planContext.plannerRestrictionContext->containsReadIntermediateResultFunction = containsReadIntermediateResultFunction;
+
+	if (IsLoggableLevel(DEBUG1)) {
+		ereport(DEBUG1, (errmsg("------allTablesAreDistributedTable:%d ", planContext.plannerRestrictionContext->allTablesAreDistributedTable)));
+		ereport(DEBUG1, (errmsg("------allTablesAreSingleShard:%d ", planContext.plannerRestrictionContext->allTablesAreSingleShard)));
+		ereport(DEBUG1, (errmsg("------tablesLocatedInMultiWorker:%d ", planContext.plannerRestrictionContext->tablesLocatedInMultiWorker)));
+		ereport(DEBUG1, (errmsg("------containsReadIntermediateResultFunction:%d ", planContext.plannerRestrictionContext->containsReadIntermediateResultFunction)));
+	}
+	//print_mem(getpid(), "1.5");
 	/*
 	 * We keep track of how many times we've recursed into the planner, primarily
 	 * to detect whether we are in a function call. We need to make sure that the
@@ -2850,27 +2912,50 @@ distributed_planner(Query *parse,
 		if (fastPathRouterQuery)
 		{
 			result = PlanFastPathDistributedStmt(&planContext, distributionKeyValue);
-			print_mem(getpid(), "1.6");
+			//print_mem(getpid(), "1.6");
 		}
 		else
 		{
-			ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.2 ")));
+			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.2 ")));
 			TimestampTz startTimestamp2 = GetCurrentTimestamp();
+			//bool runStandardPlanner = false;
 			/*
 			 * Call into standard_planner because the Citus planner relies on both the
 			 * restriction information per table and parse tree transformations made by
 			 * postgres' planner.
 			 */
-			planContext.plan = standard_planner_compat(planContext.query,
+			// planContext.plan = standard_planner_compat(planContext.query,
+			// 										   planContext.cursorOptions,
+			// 										   planContext.boundParams);
+			// planContext.doStandardPlannerInTheBegin = true;
+			// todo only for plaftorm pattern sql do it
+			if (planContext.plannerRestrictionContext->allTablesAreDistributedTable && planContext.plannerRestrictionContext->allTablesAreSingleShard 
+				&& !planContext.plannerRestrictionContext->tablesLocatedInMultiWorker) {
+				planContext.plan = standard_planner_compat(planContext.query,
 													   planContext.cursorOptions,
 													   planContext.boundParams);
-			print_mem(getpid(), "1.7");
+				planContext.doStandardPlannerInTheBegin = true;
+			} else if (planContext.plannerRestrictionContext->allTablesAreDistributedTable && planContext.plannerRestrictionContext->allTablesAreSingleShard 
+				&& (planContext.query)->commandType == CMD_SELECT && (selectFromSameSimpleViewLinkedByUnionAll || allSubQueryNotHaveJoinOperator)) {
+				;
+			} else {
+				planContext.plan = standard_planner_compat(planContext.query,
+													   planContext.cursorOptions,
+													   planContext.boundParams);
+				planContext.doStandardPlannerInTheBegin = true;
+			}
+			if (IsLoggableLevel(DEBUG3)) {
+				ereport(DEBUG3, (errmsg("~~~~~~~~~~~ runStandardPlanner:%d", planContext.doStandardPlannerInTheBegin)));
+			}
+			//elog_node_display(LOG, "standard_planner_compat  plan parse tree", planContext.plan, Debug_pretty_print);
+
+			//print_mem(getpid(), "1.7");
 			TimestampDifference(startTimestamp2, GetCurrentTimestamp(), &durationSeconds,
 						&durationMicrosecs);
 			durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 			durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-			ereport(DEBUG1, (errmsg("-------run standard_planner_compat ,start_time:%s, run time cost:%d",
-			 timestamptz_to_str(startTimestamp2), durationMillisecs)));
+			// ereport(DEBUG1, (errmsg("-------run standard_planner_compat ,start_time:%s, run time cost:%d",
+			//  timestamptz_to_str(startTimestamp2), durationMillisecs)));
 			if (needsDistributedPlanning)
 			{
 				//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.3 ")));
@@ -2880,14 +2965,22 @@ distributed_planner(Query *parse,
 						&durationMicrosecs);
 				durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 				durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-				ereport(DEBUG1, (errmsg("-------run PlanDistributedStmt ,start_time:%s, run time cost:%d",
-				 timestamptz_to_str(startTimestamp3), durationMillisecs)));
-				print_mem(getpid(), "1.8");
+				// ereport(DEBUG1, (errmsg("-------run PlanDistributedStmt ,start_time:%s, run time cost:%d",
+				//  	timestamptz_to_str(startTimestamp3), durationMillisecs)));
+				// print_mem(getpid(), "1.8");
 			}
 			else if ((result = TryToDelegateFunctionCall(&planContext)) == NULL)
 			{
+				//print_mem(getpid(), "1.8.3");
+				if (!planContext.doStandardPlannerInTheBegin) {
+					//print_mem(getpid(), "1.8.4");
+					planContext.plan = standard_planner_compat(planContext.query,
+													planContext.cursorOptions,
+												    planContext.boundParams);
+				}
+				//print_mem(getpid(), "1.8.5");
 				result = planContext.plan;
-				print_mem(getpid(), "1.9");
+				//print_mem(getpid(), "1.9");
 			}
 			//ereport(DEBUG3, (errmsg("~~~~~~~~~~~ 1.4 ")));
 		}
@@ -2897,8 +2990,8 @@ distributed_planner(Query *parse,
 						&durationMicrosecs);
 			durationMillisecs = durationSeconds * SECOND_TO_MILLI_SECOND;
 			durationMillisecs += durationMicrosecs * MICRO_TO_MILLI_SECOND;
-			ereport(DEBUG1, (errmsg("-------run PlanDistributed ,start_time:%s, run time cost:%d",
-			 timestamptz_to_str(startTimestamp), durationMillisecs)));
+			// ereport(DEBUG1, (errmsg("-------run PlanDistributed ,start_time:%s, run time cost:%d",
+			//  timestamptz_to_str(startTimestamp), durationMillisecs)));
 		}
 	}
 	PG_CATCH();
@@ -2915,7 +3008,7 @@ distributed_planner(Query *parse,
 
 	/* remove the context from the context list */
 	PopPlannerRestrictionContext();
-	print_mem(getpid(), "2.0");
+	//print_mem(getpid(), "2.0");
 	/*
 	 * In some cases, for example; parameterized SQL functions, we may miss that
 	 * there is a need for distributed planning. Such cases only become clear after
@@ -3242,6 +3335,16 @@ PlanDistributedStmt(DistributedPlanningContext *planContext,
 {
 	/* may've inlined new relation rtes */
 	List *rangeTableList = ExtractRangeTableEntryList(planContext->query);
+
+	ListCell *rangeTableCell = NULL;
+	if (IsLoggableLevel(DEBUG3)) {
+		foreach(rangeTableCell, rangeTableList)
+		{
+			RangeTblEntry *rangeTableEntry = (RangeTblEntry *) lfirst(rangeTableCell);
+			ereport(DEBUG3, (errmsg("PlanDistributedStmt angeTableEntry->rtekind:%d, rangeTableEntry->relid:%d", rangeTableEntry->rtekind, rangeTableEntry->relid)));
+		}
+	}
+
 	rteIdCounter = AssignRTEIdentities(rangeTableList, rteIdCounter);
 
 
@@ -3322,7 +3425,7 @@ CreateDistributedPlannedStmt(DistributedPlanningContext *planContext)
 							  planContext->boundParams,
 							  hasUnresolvedParams,
 							  planContext->plannerRestrictionContext);
-
+	//ereport(DEBUG3, (errmsg("---------------1---")));	
 	/*
 	 * If no plan was generated, prepare a generic error to be emitted.
 	 * Normally this error message will never returned to the user, as it's
@@ -3344,7 +3447,7 @@ CreateDistributedPlannedStmt(DistributedPlanningContext *planContext)
 						  "functions, which is not supported in Citus.",
 						  "Consider using PL/pgSQL functions instead.");
 	}
-
+	//ereport(DEBUG3, (errmsg("---------------2---")));
 	/*
 	 * Error out if none of the planners resulted in a usable plan, unless the
 	 * error was possibly triggered by missing parameters.  In that case we'll
@@ -3361,12 +3464,24 @@ CreateDistributedPlannedStmt(DistributedPlanningContext *planContext)
 	{
 		RaiseDeferredError(distributedPlan->planningError, ERROR);
 	}
-
+	//ereport(DEBUG3, (errmsg("---------------3---")));
 	/* remember the plan's identifier for identifying subplans */
 	distributedPlan->planId = planId;
 
 	/* create final plan by combining local plan with distributed plan */
+	//elog_node_display(LOG, "init plan parse tree", planContext->plan, Debug_pretty_print);
+	//elog_node_display(LOG, "init distributedPlan parse tree", distributedPlan, Debug_pretty_print);
+	//ereport(DEBUG3, (errmsg("---------------4---")));
+	// StringInfo subqueryString = makeStringInfo();
+	// pg_get_query_def(planContext->query, subqueryString);
+	// ereport(DEBUG1, (errmsg("------walk into CreateDistributedPlannedStmt, final query:%s", ApplyLogRedaction(subqueryString->data))));
+	if (!planContext->doStandardPlannerInTheBegin) {
+		planContext->plan = standard_planner_compat(planContext->query,
+													planContext->cursorOptions,
+													planContext->boundParams);
+	}
 	resultPlan = FinalizePlan(planContext->plan, distributedPlan);
+	//elog_node_display(LOG, "after FinalizePlan plan parse tree", resultPlan, Debug_pretty_print);
 
 	/*
 	 * As explained above, force planning costs to be unrealistically high if
@@ -3682,6 +3797,7 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	 */
 	List *subPlanList = GenerateSubplansForSubqueriesAndCTEs(planId, originalQuery,
 															 plannerRestrictionContext);
+	//elog_node_display(LOG, "subPlanList parse tree", subPlanList, Debug_pretty_print);
 	/* ------------- danny test begin ---------------  */
 	if (IsLoggableLevel(DEBUG3))
 	{
@@ -3704,6 +3820,11 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 	if (list_length(subPlanList) > 0 || hasCtes)
 	{
 		Query *newQuery = copyObject(originalQuery);
+		if (IsLoggableLevel(DEBUG3)) {
+			StringInfo subqueryString = makeStringInfo();
+			pg_get_query_def(newQuery, subqueryString);
+			ereport(DEBUG1, (errmsg("------after GenerateSubplansForSubqueriesAndCTEs, has subplan, newQuery:%s", ApplyLogRedaction(subqueryString->data))));
+		}
 		bool setPartitionedTablesInherited = false;
 		PlannerRestrictionContext *currentPlannerRestrictionContext =
 			CurrentPlannerRestrictionContext();
@@ -3726,7 +3847,7 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 		 * being contiguous.
 		 */
 
-		standard_planner_compat(newQuery, 0, boundParams);
+		//standard_planner_compat(newQuery, 0, boundParams);
 
 		/* overwrite the old transformed query with the new transformed query */
 		*query = *newQuery;
@@ -3740,7 +3861,7 @@ CreateDistributedPlan(uint64 planId, Query *originalQuery, Query *query, ParamLi
 		/* ------------- danny test  end---------------  */
 		distributedPlan = CreateDistributedPlan(planId, originalQuery, query, NULL, false,
 												plannerRestrictionContext);
-
+		//elog_node_display(LOG, "distributedPlan parse tree", distributedPlan, Debug_pretty_print);
 		/* distributedPlan cannot be null since hasUnresolvedParams argument was false */
 		Assert(distributedPlan != NULL);
 		distributedPlan->subPlanList = subPlanList;
